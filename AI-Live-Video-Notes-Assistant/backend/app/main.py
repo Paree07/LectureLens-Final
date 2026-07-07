@@ -15,11 +15,14 @@ app = FastAPI(
 )
 
 
+# CORS Configuration
+# Allows local frontend + deployed Vercel frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "https://lecture-lens-kappa.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -27,6 +30,7 @@ app.add_middleware(
 )
 
 
+# Include API Routers
 app.include_router(
     video_router,
     prefix="/api",
@@ -64,6 +68,7 @@ app.include_router(
 )
 
 
+# Root Route
 @app.get("/")
 def home():
     return {
@@ -72,6 +77,7 @@ def home():
     }
 
 
+# Health Check Route
 @app.get("/health")
 def health():
     return {
