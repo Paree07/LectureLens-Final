@@ -4,8 +4,9 @@ import shutil
 import tempfile
 from typing import Optional, Dict, Any
 
+import requests
+
 from youtube_transcript_api import YouTubeTranscriptApi
-from youtube_transcript_api.proxies import WebshareProxyConfig
 from youtube_transcript_api._errors import (
     RequestBlocked,
     IpBlocked,
@@ -16,30 +17,68 @@ from youtube_transcript_api._errors import (
 
 
 # =========================================================
-# PROXY CONFIG (set these as environment variables on your
-# hosting provider's dashboard, e.g. Render/Railway "Environment" tab)
+# SUPADATA CONFIG (free tier: 100 credits/month, no card)
+# Set this as an environment variable on your host:
+#   SUPADATA_API_KEY=your-key-here
 # =========================================================
 
-WEBSHARE_USERNAME = os.environ.get("WEBSHARE_PROXY_USERNAME")
-WEBSHARE_PASSWORD = os.environ.get("WEBSHARE_PROXY_PASSWORD")
-YTDLP_PROXY_URL = os.environ.get("YTDLP_PROXY_URL")  # e.g. "http://user:pass@p.webshare.io:80"
+SUPADATA_API_KEY = os.environ.get("sd_51d0ff930007fbec07d1cef7e9dca238")
 
 
-def get_ytt_api():
+def get_transcript_from_supadata(url: str) -> Optional[str]:
     """
-    Build a YouTubeTranscriptApi instance.
-    Uses Webshare rotating residential proxy if credentials
-    are configured, otherwise falls back to a direct connection
-    (which will likely be blocked on cloud hosts).
+    Fetch a transcript via the Supadata API (free tier available).
+    Returns the full transcript text, or None on failure.
     """
-    if WEBSHARE_USERNAME and WEBSHARE_PASSWORD:
-        return YouTubeTranscriptApi(
-            proxy_config=WebshareProxyConfig(
-                proxy_username=WEBSHARE_USERNAME,
-                proxy_password=WEBSHARE_PASSWORD,
-            )
+
+    if not SUPADATA_API_KEY:
+        print("Supadata API key not configured, skipping.")
+        return None
+
+    try:
+        print("Trying Supadata transcript API...")
+
+        response = requests.get(
+            "https://api.supadata.ai/v1/transcript",
+            params={"url": url},
+            headers={"x-api-key": SUPADATA_API_KEY},
+            timeout=30,
         )
-    return YouTubeTranscriptApi()
+
+        if response.status_code != 200:
+            print(
+                "Supadata API returned non-200 status:",
+                response.status_code,
+                response.text[:300],
+            )
+            return None
+
+        data = response.json()
+        segments = data.get("content", [])
+
+        text_parts = [
+            seg.get("text", "").strip()
+            for seg in segments
+            if seg.get("text", "").strip()
+        ]
+
+        full_text = " ".join(text_parts).strip()
+
+        if full_text:
+            print(
+                "Supadata transcript fetched successfully:",
+                len(full_text),
+                "characters",
+            )
+            return full_text
+
+        print("Supadata returned empty transcript.")
+        return None
+
+    except Exception as e:
+        print("Supadata API Error:", type(e).__name__, str(e))
+        return None
+
 
 
 # =========================================================
@@ -217,10 +256,6 @@ def get_transcript_with_whisper_fallback(
             "max_filesize": 200 * 1024 * 1024,
         }
 
-        if YTDLP_PROXY_URL:
-            ydl_options["proxy"] = YTDLP_PROXY_URL
-            print("Using proxy for yt-dlp download.")
-
         with yt_dlp.YoutubeDL(
             ydl_options
         ) as ydl:
@@ -329,7 +364,22 @@ def get_transcript(
         }
 
     # -----------------------------------------------------
-    # METHOD 1: YOUTUBE TRANSCRIPT API
+    # METHOD 0: SUPADATA (free tier, no proxy needed)
+    # -----------------------------------------------------
+
+    supadata_transcript = get_transcript_from_supadata(url)
+
+    if supadata_transcript:
+        return {
+            "success": True,
+            "transcript": supadata_transcript,
+            "source": "supadata",
+            "error": None,
+            "message": "Transcript fetched successfully via Supadata.",
+        }
+
+    # -----------------------------------------------------
+    # METHOD 1: YOUTUBE TRANSCRIPT API (direct, no proxy)
     # -----------------------------------------------------
 
     method_1_error_code = None
@@ -338,7 +388,7 @@ def get_transcript(
         print("Trying YouTube transcript API...")
         print("Video ID:", video_id)
 
-        ytt_api = get_ytt_api()
+        ytt_api = YouTubeTranscriptApi()
 
         transcript = ytt_api.fetch(
             video_id,
