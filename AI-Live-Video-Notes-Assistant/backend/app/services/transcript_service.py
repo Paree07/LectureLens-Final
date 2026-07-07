@@ -17,18 +17,31 @@ from youtube_transcript_api._errors import (
 
 
 # =========================================================
-# SUPADATA CONFIG (free tier: 100 credits/month, no card)
-# Set this as an environment variable on your host:
-#   SUPADATA_API_KEY=your-key-here
+# SUPADATA CONFIG
+# =========================================================
+# Add this environment variable on your backend host:
+#
+# SUPADATA_API_KEY=your_actual_api_key
+#
+# Never hardcode the real API key in this file.
 # =========================================================
 
 SUPADATA_API_KEY = os.environ.get("SUPADATA_API_KEY")
 
 
+# =========================================================
+# SUPADATA TRANSCRIPT
+# =========================================================
+
 def get_transcript_from_supadata(url: str) -> Optional[str]:
     """
-    Fetch a transcript via the Supadata API (free tier available).
-    Returns the full transcript text, or None on failure.
+    Fetch transcript using Supadata.
+
+    Handles:
+    - content as plain string
+    - content as list of dictionaries
+    - content as list of strings
+    - nested transcript/text fields
     """
 
     if not SUPADATA_API_KEY:
@@ -36,49 +49,206 @@ def get_transcript_from_supadata(url: str) -> Optional[str]:
         return None
 
     try:
+        print("=" * 60)
         print("Trying Supadata transcript API...")
+        print("URL:", url)
 
         response = requests.get(
             "https://api.supadata.ai/v1/transcript",
-            params={"url": url},
-            headers={"x-api-key": SUPADATA_API_KEY},
-            timeout=30,
+            params={
+                "url": url,
+            },
+            headers={
+                "x-api-key": SUPADATA_API_KEY,
+                "Accept": "application/json",
+            },
+            timeout=60,
+        )
+
+        print("Supadata status:", response.status_code)
+
+        # Safe debug output.
+        # Does not print the API key.
+        print(
+            "Supadata raw response:",
+            response.text[:1000],
         )
 
         if response.status_code != 200:
             print(
                 "Supadata API returned non-200 status:",
                 response.status_code,
-                response.text[:300],
             )
             return None
 
-        data = response.json()
-        segments = data.get("content", [])
+        try:
+            data = response.json()
 
-        text_parts = [
-            seg.get("text", "").strip()
-            for seg in segments
-            if seg.get("text", "").strip()
-        ]
-
-        full_text = " ".join(text_parts).strip()
-
-        if full_text:
+        except ValueError as e:
             print(
-                "Supadata transcript fetched successfully:",
-                len(full_text),
-                "characters",
+                "Supadata JSON parsing failed:",
+                str(e),
             )
-            return full_text
+            return None
 
-        print("Supadata returned empty transcript.")
+        print(
+            "Supadata response type:",
+            type(data).__name__,
+        )
+
+        # -------------------------------------------------
+        # CASE 1:
+        # Entire response itself is a string
+        # -------------------------------------------------
+
+        if isinstance(data, str):
+            full_text = data.strip()
+
+            if full_text:
+                print(
+                    "Supadata transcript fetched successfully:",
+                    len(full_text),
+                    "characters",
+                )
+                return full_text
+
+        # -------------------------------------------------
+        # Response should normally be a dictionary
+        # -------------------------------------------------
+
+        if not isinstance(data, dict):
+            print(
+                "Supadata returned unsupported response type:",
+                type(data).__name__,
+            )
+            return None
+
+        # -------------------------------------------------
+        # Try common response fields
+        # -------------------------------------------------
+
+        content = data.get("content")
+
+        if content is None:
+            content = data.get("transcript")
+
+        if content is None:
+            content = data.get("text")
+
+        # -------------------------------------------------
+        # CASE 2:
+        # content is a plain string
+        # -------------------------------------------------
+
+        if isinstance(content, str):
+            full_text = content.strip()
+
+            if full_text:
+                print(
+                    "Supadata transcript fetched successfully:",
+                    len(full_text),
+                    "characters",
+                )
+                return full_text
+
+        # -------------------------------------------------
+        # CASE 3:
+        # content is a list
+        # -------------------------------------------------
+
+        if isinstance(content, list):
+            text_parts = []
+
+            for item in content:
+
+                # Dictionary segment
+                if isinstance(item, dict):
+                    text = item.get("text")
+
+                    if text is None:
+                        text = item.get("content")
+
+                    if isinstance(text, str):
+                        cleaned_text = text.strip()
+
+                        if cleaned_text:
+                            text_parts.append(cleaned_text)
+
+                # Plain string segment
+                elif isinstance(item, str):
+                    cleaned_text = item.strip()
+
+                    if cleaned_text:
+                        text_parts.append(cleaned_text)
+
+            full_text = " ".join(text_parts).strip()
+
+            if full_text:
+                print(
+                    "Supadata transcript fetched successfully:",
+                    len(full_text),
+                    "characters",
+                )
+                return full_text
+
+        # -------------------------------------------------
+        # CASE 4:
+        # content is nested dictionary
+        # -------------------------------------------------
+
+        if isinstance(content, dict):
+
+            nested_text = content.get("text")
+
+            if nested_text is None:
+                nested_text = content.get("transcript")
+
+            if nested_text is None:
+                nested_text = content.get("content")
+
+            if isinstance(nested_text, str):
+                full_text = nested_text.strip()
+
+                if full_text:
+                    print(
+                        "Supadata transcript fetched successfully:",
+                        len(full_text),
+                        "characters",
+                    )
+                    return full_text
+
+        print(
+            "Supadata returned empty or unsupported transcript."
+        )
+
+        print(
+            "Content type:",
+            type(content).__name__,
+        )
+
+        return None
+
+    except requests.Timeout:
+        print(
+            "Supadata API Error: Request timed out."
+        )
+        return None
+
+    except requests.RequestException as e:
+        print(
+            "Supadata Request Error:",
+            type(e).__name__,
+            str(e),
+        )
         return None
 
     except Exception as e:
-        print("Supadata API Error:", type(e).__name__, str(e))
+        print(
+            "Supadata API Error:",
+            type(e).__name__,
+            str(e),
+        )
         return None
-
 
 
 # =========================================================
@@ -90,8 +260,7 @@ _whisper_model = None
 
 def get_whisper_model():
     """
-    Load Whisper model only once.
-    Reuse the same model for future transcriptions.
+    Load Whisper model once and reuse it.
     """
 
     global _whisper_model
@@ -99,6 +268,7 @@ def get_whisper_model():
     if _whisper_model is None:
         from faster_whisper import WhisperModel
 
+        print("=" * 60)
         print("Loading Whisper base model...")
 
         _whisper_model = WhisperModel(
@@ -113,26 +283,31 @@ def get_whisper_model():
 
 
 # =========================================================
-# YOUTUBE VIDEO ID
+# YOUTUBE VIDEO ID EXTRACTION
 # =========================================================
 
 def extract_video_id(url: str) -> Optional[str]:
     """
-    Extract YouTube video ID from common YouTube URLs.
+    Extract YouTube video ID from common URL formats.
     """
 
     if not url:
         return None
 
     patterns = [
-        r"(?:youtube\.com/watch\?v=)([A-Za-z0-9_-]{11})",
+        r"(?:youtube\.com/watch\?(?:.*&)?v=)([A-Za-z0-9_-]{11})",
         r"(?:youtu\.be/)([A-Za-z0-9_-]{11})",
         r"(?:youtube\.com/embed/)([A-Za-z0-9_-]{11})",
         r"(?:youtube\.com/shorts/)([A-Za-z0-9_-]{11})",
+        r"(?:youtube\.com/live/)([A-Za-z0-9_-]{11})",
     ]
 
     for pattern in patterns:
-        match = re.search(pattern, url)
+        match = re.search(
+            pattern,
+            url,
+            flags=re.IGNORECASE,
+        )
 
         if match:
             return match.group(1)
@@ -141,7 +316,7 @@ def extract_video_id(url: str) -> Optional[str]:
 
 
 # =========================================================
-# TRANSCRIBE AUDIO FILE WITH WHISPER
+# TRANSCRIBE AUDIO WITH WHISPER
 # =========================================================
 
 def transcribe_audio_with_whisper(
@@ -149,12 +324,13 @@ def transcribe_audio_with_whisper(
     language: Optional[str] = None,
 ) -> Optional[str]:
     """
-    Transcribe an audio/video file using faster-whisper.
+    Transcribe local audio/video file using faster-whisper.
     """
 
     try:
         model = get_whisper_model()
 
+        print("=" * 60)
         print("Starting Whisper transcription...")
         print("File:", file_path)
         print("Language:", language or "auto")
@@ -170,9 +346,13 @@ def transcribe_audio_with_whisper(
         text_parts = []
 
         for segment in segments:
-            text = getattr(segment, "text", "")
+            text = getattr(
+                segment,
+                "text",
+                "",
+            )
 
-            if text:
+            if isinstance(text, str):
                 cleaned_text = text.strip()
 
                 if cleaned_text:
@@ -181,7 +361,9 @@ def transcribe_audio_with_whisper(
         full_text = " ".join(text_parts).strip()
 
         if not full_text:
-            print("Whisper returned empty transcript.")
+            print(
+                "Whisper returned empty transcript."
+            )
             return None
 
         detected_language = getattr(
@@ -190,9 +372,19 @@ def transcribe_audio_with_whisper(
             "unknown",
         )
 
-        print("Whisper transcription successful.")
-        print("Detected language:", detected_language)
-        print("Characters:", len(full_text))
+        print(
+            "Whisper transcription successful."
+        )
+
+        print(
+            "Detected language:",
+            detected_language,
+        )
+
+        print(
+            "Characters:",
+            len(full_text),
+        )
 
         return full_text
 
@@ -207,17 +399,17 @@ def transcribe_audio_with_whisper(
 
 
 # =========================================================
-# YOUTUBE AUDIO FALLBACK
+# YOUTUBE AUDIO + WHISPER FALLBACK
 # =========================================================
 
 def get_transcript_with_whisper_fallback(
     url: str,
 ) -> Optional[str]:
     """
-    Fallback method:
+    Fallback:
 
-    1. Download best available audio with yt-dlp
-    2. Transcribe downloaded audio using faster-whisper
+    1. Download YouTube audio using yt-dlp
+    2. Transcribe with faster-whisper
     3. Delete temporary files
     """
 
@@ -226,6 +418,7 @@ def get_transcript_with_whisper_fallback(
     try:
         import yt_dlp
 
+        print("=" * 60)
         print("Trying yt-dlp + Whisper fallback...")
 
         temp_dir = tempfile.mkdtemp(
@@ -239,20 +432,13 @@ def get_transcript_with_whisper_fallback(
 
         ydl_options = {
             "format": "bestaudio/best",
-
             "outtmpl": output_template,
-
             "quiet": True,
-
             "no_warnings": True,
-
             "noplaylist": True,
-
             "retries": 2,
-
+            "fragment_retries": 2,
             "socket_timeout": 30,
-
-            # Do not download excessively large media
             "max_filesize": 200 * 1024 * 1024,
         }
 
@@ -276,26 +462,35 @@ def get_transcript_with_whisper_fallback(
             downloaded_file,
         )
 
-        # Sometimes extension/path may differ.
-        # Find actual downloaded file in temp folder.
+        # Sometimes actual extension/path differs
         if not os.path.exists(downloaded_file):
 
             files = [
-                os.path.join(temp_dir, name)
+                os.path.join(
+                    temp_dir,
+                    name,
+                )
                 for name in os.listdir(temp_dir)
                 if os.path.isfile(
-                    os.path.join(temp_dir, name)
+                    os.path.join(
+                        temp_dir,
+                        name,
+                    )
                 )
             ]
 
             if not files:
                 print(
-                    "Whisper fallback failed:",
-                    "No downloaded audio file found.",
+                    "Whisper fallback failed: "
+                    "No downloaded audio file found."
                 )
                 return None
 
-            downloaded_file = files[0]
+            # Prefer largest file
+            downloaded_file = max(
+                files,
+                key=os.path.getsize,
+            )
 
         print(
             "Audio downloaded successfully:",
@@ -303,7 +498,7 @@ def get_transcript_with_whisper_fallback(
         )
 
         transcript = transcribe_audio_with_whisper(
-            downloaded_file,
+            file_path=downloaded_file,
             language=None,
         )
 
@@ -320,6 +515,7 @@ def get_transcript_with_whisper_fallback(
 
     finally:
         if temp_dir and os.path.exists(temp_dir):
+
             try:
                 shutil.rmtree(
                     temp_dir,
@@ -338,7 +534,7 @@ def get_transcript_with_whisper_fallback(
 
 
 # =========================================================
-# YOUTUBE TRANSCRIPT
+# MAIN YOUTUBE TRANSCRIPT FUNCTION
 # =========================================================
 
 def get_transcript(
@@ -347,46 +543,82 @@ def get_transcript(
     """
     Transcript strategy:
 
-    1. Try YouTube transcript/captions API (via proxy if configured)
-    2. If unavailable or cloud-blocked:
-       try yt-dlp audio + Whisper
-    3. Return structured response
+    METHOD 0:
+        Supadata
+
+    METHOD 1:
+        YouTube Transcript API
+
+    METHOD 2:
+        yt-dlp + Whisper
+
+    Returns structured response.
     """
+
+    print("=" * 60)
+    print("Starting transcript request...")
+    print("URL:", url)
 
     video_id = extract_video_id(url)
 
     if not video_id:
+        print("Invalid YouTube URL.")
+
         return {
             "success": False,
             "transcript": None,
+            "source": None,
             "error": "invalid_youtube_url",
             "message": "Invalid YouTube URL.",
         }
 
-    # -----------------------------------------------------
-    # METHOD 0: SUPADATA (free tier, no proxy needed)
-    # -----------------------------------------------------
+    print("Video ID:", video_id)
 
-    supadata_transcript = get_transcript_from_supadata(url)
+    # =====================================================
+    # METHOD 0: SUPADATA
+    # =====================================================
+
+    print("=" * 60)
+    print("METHOD 0: SUPADATA")
+
+    supadata_transcript = (
+        get_transcript_from_supadata(url)
+    )
 
     if supadata_transcript:
+        print(
+            "SUCCESS: Transcript fetched via Supadata."
+        )
+
         return {
             "success": True,
             "transcript": supadata_transcript,
             "source": "supadata",
             "error": None,
-            "message": "Transcript fetched successfully via Supadata.",
+            "message": (
+                "Transcript fetched successfully "
+                "via Supadata."
+            ),
         }
 
-    # -----------------------------------------------------
-    # METHOD 1: YOUTUBE TRANSCRIPT API (direct, no proxy)
-    # -----------------------------------------------------
+    print(
+        "Supadata failed. "
+        "Moving to YouTube captions..."
+    )
+
+    # =====================================================
+    # METHOD 1: YOUTUBE TRANSCRIPT API
+    # =====================================================
+
+    print("=" * 60)
+    print("METHOD 1: YOUTUBE TRANSCRIPT API")
 
     method_1_error_code = None
 
     try:
-        print("Trying YouTube transcript API...")
-        print("Video ID:", video_id)
+        print(
+            "Trying YouTube transcript API..."
+        )
 
         ytt_api = YouTubeTranscriptApi()
 
@@ -403,13 +635,14 @@ def get_transcript(
         text_parts = []
 
         for item in transcript:
+
             text = getattr(
                 item,
                 "text",
                 None,
             )
 
-            if text:
+            if isinstance(text, str):
                 cleaned_text = text.strip()
 
                 if cleaned_text:
@@ -433,29 +666,55 @@ def get_transcript(
                 "transcript": full_text,
                 "source": "youtube_captions",
                 "error": None,
-                "message": "Transcript fetched successfully.",
+                "message": (
+                    "Transcript fetched successfully "
+                    "from YouTube captions."
+                ),
             }
 
         print(
             "YouTube captions returned empty text."
         )
-        method_1_error_code = "empty_captions"
+
+        method_1_error_code = (
+            "empty_captions"
+        )
 
     except (RequestBlocked, IpBlocked) as e:
-        print("YouTube blocked this server's IP:", str(e))
+        print(
+            "YouTube blocked this server's IP:",
+            str(e),
+        )
+
         method_1_error_code = "ip_blocked"
 
     except TranscriptsDisabled:
-        print("Captions are disabled for this video.")
-        method_1_error_code = "captions_disabled"
+        print(
+            "Captions are disabled for this video."
+        )
+
+        method_1_error_code = (
+            "captions_disabled"
+        )
 
     except NoTranscriptFound:
-        print("No transcript found in requested languages.")
-        method_1_error_code = "no_transcript_found"
+        print(
+            "No transcript found in requested languages."
+        )
+
+        method_1_error_code = (
+            "no_transcript_found"
+        )
 
     except VideoUnavailable:
-        print("Video is unavailable (private/deleted/region-locked).")
-        method_1_error_code = "video_unavailable"
+        print(
+            "Video unavailable, private, deleted, "
+            "or region locked."
+        )
+
+        method_1_error_code = (
+            "video_unavailable"
+        )
 
     except Exception as e:
         print(
@@ -463,20 +722,22 @@ def get_transcript(
             type(e).__name__,
             str(e),
         )
-        method_1_error_code = "unknown_error"
 
-    # -----------------------------------------------------
-    # METHOD 2: YT-DLP + WHISPER FALLBACK
-    # -----------------------------------------------------
+        method_1_error_code = (
+            "unknown_error"
+        )
 
     print(
         "Primary transcript method failed:",
         method_1_error_code,
     )
 
-    print(
-        "Trying audio + Whisper fallback..."
-    )
+    # =====================================================
+    # METHOD 2: YT-DLP + WHISPER
+    # =====================================================
+
+    print("=" * 60)
+    print("METHOD 2: YT-DLP + WHISPER")
 
     whisper_transcript = (
         get_transcript_with_whisper_fallback(
@@ -485,28 +746,42 @@ def get_transcript(
     )
 
     if whisper_transcript:
+        print(
+            "SUCCESS: Transcript generated via Whisper."
+        )
+
         return {
             "success": True,
             "transcript": whisper_transcript,
             "source": "whisper_fallback",
             "error": None,
             "message": (
-                "Transcript generated from video audio "
-                "using Whisper."
+                "Transcript generated from video "
+                "audio using Whisper."
             ),
         }
 
-    # -----------------------------------------------------
+    # =====================================================
     # ALL METHODS FAILED
-    # -----------------------------------------------------
+    # =====================================================
+
+    print("=" * 60)
+    print("ALL TRANSCRIPT METHODS FAILED")
+
+    final_error = (
+        method_1_error_code
+        or "all_transcript_methods_failed"
+    )
 
     return {
         "success": False,
         "transcript": None,
-        "error": method_1_error_code or "all_transcript_methods_failed",
+        "source": None,
+        "error": final_error,
         "message": (
             "Could not retrieve or generate a transcript. "
-            "YouTube may be blocking the deployed cloud server."
+            "Supadata, YouTube captions, and Whisper "
+            "fallback all failed."
         ),
     }
 
@@ -556,8 +831,16 @@ def transcribe_uploaded_file(
 
     if not file_path:
         print(
-            "Upload Transcript Error:",
-            "File path missing",
+            "Upload Transcript Error: "
+            "File path missing."
+        )
+        return None
+
+    if not os.path.exists(file_path):
+        print(
+            "Upload Transcript Error: "
+            "File does not exist:",
+            file_path,
         )
         return None
 
