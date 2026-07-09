@@ -3,7 +3,8 @@
 // =====================================================
 
 // LOCAL BACKEND TESTING
-export const API_BASE_URL = "http://127.0.0.1:8000";
+export const API_BASE_URL =
+  "https://lecturelens-production-5dec.up.railway.app";
 
 // When you later want Railway backend, replace above with:
 // export const API_BASE_URL =
