@@ -3,8 +3,12 @@
 // =====================================================
 
 // LOCAL BACKEND TESTING
+<<<<<<< HEAD
 export const API_BASE_URL =
  "https://lecturelens-final-production.up.railway.app/";
+=======
+export const API_BASE_URL = "https://lecturelens-final-production.up.railway.app/";
+>>>>>>> 6762daf (Save latest working deployment changes)
 
 // When you later want Railway backend, replace above with:
 // export const API_BASE_URL =
