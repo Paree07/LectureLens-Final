@@ -1,10 +1,18 @@
-const API_BASE_URL =
-  "https://lecturelens-production-5dec.up.railway.app";
+// =====================================================
+// API BASE URL
+// =====================================================
+
+// LOCAL BACKEND TESTING
+export const API_BASE_URL = "http://127.0.0.1:8000";
+
+// When you later want Railway backend, replace above with:
+// export const API_BASE_URL =
+//   "https://lecturelens-production-5dec.up.railway.app";
 
 
-// ==========================================
+// =====================================================
 // COMMON RESPONSE PARSER
-// ==========================================
+// =====================================================
 
 async function parseResponse(response: Response) {
   let data: any;
@@ -20,16 +28,17 @@ async function parseResponse(response: Response) {
   if (!response.ok) {
     throw new Error(
       data?.detail ||
-        data?.message ||
-        `Request failed with status ${response.status}`
+      data?.message ||
+      `Request failed with status ${response.status}`
     );
   }
 
+  // Backend may return HTTP 200 with success:false
   if (data?.success === false) {
     throw new Error(
       data?.message ||
-        data?.error ||
-        "Request failed"
+      data?.error ||
+      "Request failed"
     );
   }
 
@@ -37,109 +46,94 @@ async function parseResponse(response: Response) {
 }
 
 
-// ==========================================
-// COMMON FETCH HELPER
-// ==========================================
+// =====================================================
+// POST JSON HELPER
+// =====================================================
 
-async function apiFetch(
+async function postJSON(
   endpoint: string,
-  options: RequestInit = {}
+  body: Record<string, any>
 ) {
-  try {
-    const response = await fetch(
-      `${API_BASE_URL}${endpoint}`,
-      {
-        ...options,
-        headers: {
-          "Content-Type": "application/json",
-          ...(options.headers || {}),
-        },
-      }
-    );
-
-    return await parseResponse(response);
-
-  } catch (error) {
-    console.error(
-      `API request failed: ${endpoint}`,
-      error
-    );
-
-    throw error;
-  }
-}
-
-
-// ==========================================
-// BACKEND HEALTH CHECK
-// ==========================================
-
-export async function checkBackend() {
-  return apiFetch(
-    "/health",
+  const response = await fetch(
+    `${API_BASE_URL}${endpoint}`,
     {
-      method: "GET",
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
     }
   );
+
+  return parseResponse(response);
 }
 
 
-// ==========================================
+// =====================================================
+// BACKEND HEALTH CHECK
+// =====================================================
+
+export async function checkBackend() {
+  const response = await fetch(
+    `${API_BASE_URL}/health`
+  );
+
+  return parseResponse(response);
+}
+
+
+// =====================================================
 // YOUTUBE METADATA
-// ==========================================
+// =====================================================
 
 export async function getYouTubeMetadata(
   url: string
 ) {
-  return apiFetch(
+  const data = await postJSON(
     "/api/youtube/metadata",
-    {
-      method: "POST",
-
-      body: JSON.stringify({
-        url,
-      }),
-    }
+    { url }
   );
+
+  console.log(
+    "YouTube Metadata API Response:",
+    data
+  );
+
+  return data;
 }
 
 
-// ==========================================
+// =====================================================
 // YOUTUBE TRANSCRIPT
-// ==========================================
+// =====================================================
 
 export async function getYouTubeTranscript(
   url: string
 ) {
-  return apiFetch(
+  const data = await postJSON(
     "/api/youtube/transcript",
-    {
-      method: "POST",
-
-      body: JSON.stringify({
-        url,
-      }),
-    }
+    { url }
   );
+
+  console.log(
+    "YouTube Transcript API Response:",
+    data
+  );
+
+  return data;
 }
 
 
-// ==========================================
+// =====================================================
 // AI NOTES
-// ==========================================
+// =====================================================
 
 export async function generateAINotes(
   url: string
 ) {
-  const data = await apiFetch(
+  const data = await postJSON(
     "/api/ai/notes",
-    {
-      method: "POST",
-
-      body: JSON.stringify({
-        url,
-      }),
-    }
+    { url }
   );
 
   console.log(
@@ -151,23 +145,61 @@ export async function generateAINotes(
 }
 
 
-// ==========================================
+// =====================================================
+// AI FLASHCARDS
+// =====================================================
+
+export async function generateFlashcards(
+  url: string
+) {
+  const data = await postJSON(
+    "/api/ai/flashcards",
+    { url }
+  );
+
+  console.log(
+    "Flashcards API Response:",
+    data
+  );
+
+  return data;
+}
+
+
+// =====================================================
+// AI QUIZ
+// =====================================================
+
+export async function generateQuiz(
+  url: string
+) {
+  const data = await postJSON(
+    "/api/ai/quiz",
+    { url }
+  );
+
+  console.log(
+    "Quiz API Response:",
+    data
+  );
+
+  return data;
+}
+
+
+// =====================================================
 // AI CHAT
-// ==========================================
+// =====================================================
 
 export async function askAIChat(
   url: string,
-  question: string
+  message: string
 ) {
-  const data = await apiFetch(
+  const data = await postJSON(
     "/api/ai/chat",
     {
-      method: "POST",
-
-      body: JSON.stringify({
-        url,
-        question,
-      }),
+      url,
+      question: message,
     }
   );
 
@@ -178,12 +210,3 @@ export async function askAIChat(
 
   return data;
 }
-
-
-// ==========================================
-// API BASE URL EXPORT
-// ==========================================
-
-export {
-  API_BASE_URL
-};

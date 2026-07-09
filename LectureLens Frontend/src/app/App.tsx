@@ -7,8 +7,16 @@ import {
   Mail, X, SkipBack, SkipForward, PlayCircle, Sparkles, GraduationCap,
   Building2, Code2, FlaskConical, Globe, HelpCircle, LayersIcon,
 } from "lucide-react";
-import { checkBackend, getYouTubeMetadata, getYouTubeTranscript, generateAINotes } from "../services/api";
-
+import {
+  API_BASE_URL,
+  checkBackend,
+  getYouTubeMetadata,
+  getYouTubeTranscript,
+  generateAINotes,
+  generateFlashcards,
+  generateQuiz,
+  askAIChat
+} from "../services/api";
 /* ─── Warm cream · notebook palette ────────────────────────── */
 const C = {
   /* grounds */
@@ -41,6 +49,28 @@ const C = {
   border:    "rgba(26,71,49,0.10)",
   rule:      "rgba(26,71,49,0.06)",
   shadow:    "rgba(26,71,49,0.08)",
+};
+
+const LIGHT_C = { ...C };
+const DARK_C = {
+  ...C,
+  bg: "#111714",
+  bgAlt: "#18211C",
+  bgRule: "#25352C",
+  card: "#1B251F",
+  cardWarm: "#202B24",
+  text: "#F4F1E8",
+  textMuted: "#C7BFB0",
+  textDim: "#948B7D",
+  border: "rgba(216,239,229,0.14)",
+  rule: "rgba(216,239,229,0.08)",
+  shadow: "rgba(0,0,0,0.30)",
+  green: "#65B88A",
+  greenMid: "#78C79A",
+  greenSage: "#8EB8A6",
+  greenDim: "rgba(101,184,138,0.13)",
+  greenGlow: "rgba(101,184,138,0.20)",
+  greenLight: "#244B36",
 };
 
 /* ─── shared style helpers ──────────────────────────────────── */
@@ -194,7 +224,9 @@ function NoteCard({ note, idx, compact = false }: { note: typeof liveNotes[0]; i
   return (
     <div style={{
       background: C.cardWarm,
-      border: `1px solid ${C.border}`,
+      borderTop: `1px solid ${C.border}`,
+      borderRight: `1px solid ${C.border}`,
+      borderBottom: `1px solid ${C.border}`,
       borderLeft: `3.5px solid ${accent}`,
       borderRadius: 14,
       padding: compact ? "13px 15px" : "16px 18px",
@@ -682,7 +714,7 @@ function LandingPage({ onEnterDashboard }: { onEnterDashboard: () => void }) {
    DASHBOARD
 ════════════════════════════════════════════════════════════════ */
 function formatDuration(seconds?: number) {
-  if (!seconds && seconds !== 0) return "1h 24m 30s";
+  if (seconds === undefined || seconds === null || Number.isNaN(Number(seconds))) return "";
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = seconds % 60;
@@ -846,22 +878,44 @@ function normalizeAINotes(payload: any) {
 }
 
 function normalizeTranscript(payload: any) {
-  const raw = payload?.transcript ?? payload?.data?.transcript ?? payload?.segments ?? payload?.data ?? payload;
+  const raw =
+    payload?.transcript ??
+    payload?.data?.transcript ??
+    payload?.segments ??
+    payload?.data?.segments ??
+    payload?.content ??
+    payload?.data?.content ??
+    payload?.text ??
+    payload?.data?.text ??
+    payload?.data ??
+    payload;
+
   if (Array.isArray(raw)) {
-    return raw.map((item: any) => ({
-      ts: item?.ts ?? item?.timestamp ?? item?.time ?? "00:00",
-      speaker: item?.speaker ?? "Speaker",
-      text: item?.text ?? item?.content ?? String(item ?? ""),
-    }));
+    return raw
+      .map((item: any) => ({
+        ts: item?.ts ?? item?.timestamp ?? item?.start ?? item?.time ?? "00:00",
+        speaker: item?.speaker ?? item?.speaker_name ?? "Speaker",
+        text: item?.text ?? item?.content ?? item?.sentence ?? "",
+      }))
+      .filter((item: any) => String(item.text).trim());
   }
-  if (typeof raw === "string") {
-    return [{ ts: "00:00", speaker: "Speaker", text: raw }];
+
+  if (typeof raw === "string" && raw.trim()) {
+    return [{ ts: "00:00", speaker: "Speaker", text: raw.trim() }];
   }
+
+  if (raw && typeof raw === "object") {
+    const possibleText = raw?.text ?? raw?.content ?? raw?.transcript;
+    if (typeof possibleText === "string" && possibleText.trim()) {
+      return [{ ts: "00:00", speaker: "Speaker", text: possibleText.trim() }];
+    }
+  }
+
   return [];
 }
 
 function Dashboard({ onBack }: { onBack: () => void }) {
-  const [activeTab, setActiveTab] = useState<"notes" | "transcript" | "concepts" | "chat">("notes");
+  const [activeTab, setActiveTab] = useState<"notes" | "transcript" | "concepts" | "chat" | "flashcards" | "quizzes">("notes");
   const [chatInput, setChatInput] = useState("");
   const [messages, setMessages] = useState<{ role: string; text: string }[]>([]);
   const [isPlaying, setIsPlaying] = useState(true);
@@ -870,6 +924,7 @@ function Dashboard({ onBack }: { onBack: () => void }) {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [activeSideNav, setActiveSideNav] = useState("dashboard");
   const [transcriptSearch, setTranscriptSearch] = useState("");
+  const [globalSearch, setGlobalSearch] = useState("");
   const [generatedNotes, setGeneratedNotes] = useState<any[]>([]);
   const [generatedTranscript, setGeneratedTranscript] = useState<any[]>([]);
   const [analysisError, setAnalysisError] = useState("");
@@ -877,6 +932,11 @@ function Dashboard({ onBack }: { onBack: () => void }) {
   const [transcriptLoading, setTranscriptLoading] = useState(false);
   const [analyzedUrl, setAnalyzedUrl] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
+  const [flashcards, setFlashcards] = useState<any[]>([]);
+  const [quizQuestions, setQuizQuestions] = useState<any[]>([]);
+  const [generatedToolLoading, setGeneratedToolLoading] = useState<"flashcards" | "quizzes" | null>(null);
+  const [generatedToolError, setGeneratedToolError] = useState("");
+  const [selectedQuizAnswers, setSelectedQuizAnswers] = useState<Record<number, string>>({});
   const [showSettings, setShowSettings] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
@@ -885,6 +945,14 @@ function Dashboard({ onBack }: { onBack: () => void }) {
   const [uploadingFile, setUploadingFile] = useState(false);
   const [selectedFileName, setSelectedFileName] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("lecturelens_settings") || "{}");
+      if (saved?.theme === "dark" || saved?.theme === "light") setTheme(saved.theme);
+      if (typeof saved?.notesLanguage === "string") setNotesLanguage(saved.notesLanguage);
+    } catch {}
+  }, []);
 
   useEffect(() => {
     checkBackend()
@@ -896,6 +964,8 @@ function Dashboard({ onBack }: { onBack: () => void }) {
       });
   }, []);
 
+  Object.assign(C, theme === "dark" ? DARK_C : LIGHT_C);
+
   const handleFileUpload = async (file: File) => {
     setSelectedFileName(file.name);
     setAnalysisError("");
@@ -905,7 +975,7 @@ function Dashboard({ onBack }: { onBack: () => void }) {
       const formData = new FormData();
       formData.append("file", file);
 
-      const response = await fetch("https://lecturelens-production-5dec.up.railway.app/api/video/upload", {
+      const response = await fetch(`${API_BASE_URL}/api/video/upload`, {
         method: "POST",
         body: formData,
       });
@@ -994,10 +1064,14 @@ function Dashboard({ onBack }: { onBack: () => void }) {
         .filter(result => result.status === "rejected").length;
 
       if (failed === 3) {
-        setAnalysisError("Backend requests failed. Check that FastAPI is running on port 8000.");
-      } else if (failed > 0) {
-        setAnalysisError("Video loaded, but one or more AI endpoints failed. Check the browser console and backend terminal.");
-      }
+        setAnalysisError(
+        "Backend requests failed. Could not connect to the deployed API."
+      );
+    } else if (failed > 0) {
+        setAnalysisError(
+        "Video loaded, but one or more AI endpoints failed."
+       );
+    } 
 
       setActiveTab("notes");
     } catch (error) {
@@ -1008,6 +1082,33 @@ function Dashboard({ onBack }: { onBack: () => void }) {
       setNotesLoading(false);
       setTranscriptLoading(false);
     }
+  };
+
+
+  const handleGlobalSearch = () => {
+    const query = globalSearch.trim().toLowerCase();
+    if (!query) return;
+    const noteMatch = generatedNotes.some((note: any) =>
+      [note?.heading, ...(Array.isArray(note?.bullets) ? note.bullets : []), note?.def?.text, note?.tip?.text]
+        .filter(Boolean).some((value) => String(value).toLowerCase().includes(query))
+    );
+    if (noteMatch) { setActiveTab("notes"); setActiveSideNav("dashboard"); return; }
+    const transcriptMatch = generatedTranscript.some((line: any) =>
+      String(line?.text ?? "").toLowerCase().includes(query)
+    );
+    if (transcriptMatch) {
+      setTranscriptSearch(globalSearch.trim()); setActiveTab("transcript"); setActiveSideNav("dashboard"); return;
+    }
+    alert(`No result found for "${globalSearch.trim()}".`);
+  };
+
+  const handleSaveSettings = () => {
+    localStorage.setItem("lecturelens_settings", JSON.stringify({ theme, notesLanguage }));
+    document.documentElement.dataset.theme = theme;
+    document.body.dataset.theme = theme;
+    document.body.style.background = theme === "dark" ? DARK_C.bg : LIGHT_C.bg;
+    setShowSettings(false);
+    alert("Settings saved.");
   };
 
   const notesAsText = () => {
@@ -1125,49 +1226,119 @@ function Dashboard({ onBack }: { onBack: () => void }) {
     }
   };
 
+  const normalizeFlashcards = (payload: any): any[] => {
+    const raw =
+      payload?.flashcards ??
+      payload?.cards ??
+      payload?.data?.flashcards ??
+      payload?.data?.cards ??
+      payload?.data ??
+      payload;
+
+    const list = Array.isArray(raw) ? raw : [];
+
+    return list.map((card: any, index: number) => ({
+      question:
+        card?.question ??
+        card?.front ??
+        card?.term ??
+        card?.title ??
+        `Flashcard ${index + 1}`,
+      answer:
+        card?.answer ??
+        card?.back ??
+        card?.definition ??
+        card?.meaning ??
+        card?.explanation ??
+        "",
+    }));
+  };
+
+  const normalizeQuizQuestions = (payload: any): any[] => {
+    const raw =
+      payload?.quiz ??
+      payload?.questions ??
+      payload?.data?.quiz ??
+      payload?.data?.questions ??
+      payload?.data ??
+      payload;
+
+    const list = Array.isArray(raw) ? raw : [];
+
+    return list.map((item: any, index: number) => {
+      const rawOptions = item?.options ?? item?.choices ?? item?.answers ?? [];
+      const options = Array.isArray(rawOptions)
+        ? rawOptions
+            .map((option: any) =>
+              typeof option === "string"
+                ? option
+                : String(option?.text ?? option?.label ?? option?.value ?? "")
+            )
+            .filter(Boolean)
+        : [];
+
+      return {
+        question:
+          item?.question ??
+          item?.prompt ??
+          item?.text ??
+          `Question ${index + 1}`,
+        options,
+        correctAnswer:
+          item?.correct_answer ??
+          item?.correctAnswer ??
+          item?.answer ??
+          item?.correct ??
+          "",
+        explanation: item?.explanation ?? "",
+      };
+    });
+  };
+
   const openGeneratedTool = async (tool: "flashcards" | "quizzes") => {
     const lectureUrl = analyzedUrl || urlInput.trim();
-    if (!lectureUrl) {
-      alert("Paste a YouTube URL and click Analyze first.");
+
+    if (!lectureUrl || !getYouTubeVideoId(lectureUrl)) {
+      alert("Paste a valid YouTube URL and click Analyze first.");
       return;
     }
 
+    // IMPORTANT: open a dedicated workspace, never AI Chat.
     setActiveSideNav(tool);
-    setActiveTab("chat");
-    setMessages(prev => [...prev, {
-      role: "assistant",
-      text: tool === "flashcards"
-        ? "Generating flashcards from this lecture..."
-        : "Generating a quiz from this lecture...",
-    }]);
-
-    const endpoint = tool === "flashcards"
-      ? "http://127.0.0.1:8000/api/ai/flashcards"
-      : "http://127.0.0.1:8000/api/ai/quiz";
+    setActiveTab(tool);
+    setGeneratedToolError("");
+    setGeneratedToolLoading(tool);
 
     try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: lectureUrl }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(data?.detail || data?.message || `Request failed (${response.status})`);
-      }
+      const data =
+        tool === "flashcards"
+          ? await generateFlashcards(lectureUrl)
+          : await generateQuiz(lectureUrl);
 
-      const payload = data?.flashcards || data?.quiz || data?.questions || data?.data || data;
-      setMessages(prev => [...prev, {
-        role: "assistant",
-        text: `${tool === "flashcards" ? "Flashcards" : "Quiz"}:\n\n${JSON.stringify(payload, null, 2)}`,
-      }]);
+      if (tool === "flashcards") {
+        const cards = normalizeFlashcards(data);
+        if (!cards.length) {
+          throw new Error("Backend returned no flashcards.");
+        }
+        setFlashcards(cards);
+      } else {
+        const questions = normalizeQuizQuestions(data);
+        if (!questions.length) {
+          throw new Error("Backend returned no quiz questions.");
+        }
+        setQuizQuestions(questions);
+        setSelectedQuizAnswers({});
+      }
     } catch (error) {
-      setMessages(prev => [...prev, {
-        role: "assistant",
-        text: `${tool === "flashcards" ? "Flashcards" : "Quiz"} error: ${
-          error instanceof Error ? error.message : "Could not connect to backend"
-        }`,
-      }]);
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Could not connect to backend";
+
+      console.error(`${tool} generation failed:`, error);
+      setGeneratedToolError(message);
+    } finally {
+      setGeneratedToolLoading(null);
     }
   };
 
@@ -1247,17 +1418,7 @@ function Dashboard({ onBack }: { onBack: () => void }) {
     setChatLoading(true);
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/ai/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: lectureUrl, question }),
-      });
-
-      const data = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        throw new Error(data?.detail || data?.message || `Chat request failed (${response.status})`);
-      }
+      const data = await askAIChat(lectureUrl, question);
 
       setMessages(prev => [...prev, {
         role: "assistant",
@@ -1278,10 +1439,37 @@ function Dashboard({ onBack }: { onBack: () => void }) {
 
   return (
     <>
-    <div style={{ display: "flex", height: "100vh", width: "100vw", background: C.bg, fontFamily: "Inter, sans-serif", color: C.text, overflow: "hidden" }}>
+    <style>{`
+      .ll-shell { display:flex; height:100vh; width:100vw; overflow:hidden; }
+      .ll-sidebar { width:218px; flex-shrink:0; }
+      .ll-top-search { display:flex; }
+      .ll-workspace { flex:1; display:flex; overflow:hidden; }
+      .ll-video-pane { flex:0 0 57%; }
+      .ll-ai-pane { flex:1; }
+      .ll-floating-toolbar { position:fixed; }
+      .ll-tabs { overflow-x:auto; scrollbar-width:none; }
+      .ll-tabs::-webkit-scrollbar { display:none; }
+      @media (max-width: 768px) {
+        .ll-shell { height:100dvh; overflow:hidden; }
+        .ll-sidebar { display:none !important; }
+        .ll-top-search { display:none !important; }
+        .ll-workspace { flex-direction:column !important; overflow-y:auto !important; overflow-x:hidden !important; padding-bottom:76px; }
+        .ll-video-pane { flex:0 0 auto !important; width:100% !important; min-height:auto !important; overflow:visible !important; border-right:none !important; border-bottom:1px solid rgba(26,71,49,0.10); }
+        .ll-ai-pane { flex:0 0 auto !important; width:100% !important; min-height:520px; overflow:visible !important; }
+        .ll-floating-toolbar { bottom:10px !important; left:10px !important; right:10px !important; transform:none !important; width:auto !important; padding:6px !important; justify-content:space-around !important; border-radius:18px !important; }
+        .ll-floating-toolbar button { padding:8px 7px !important; font-size:10.5px !important; gap:4px !important; flex:1; justify-content:center; }
+        .ll-tabs { display:flex !important; flex-wrap:nowrap !important; overflow-x:auto !important; }
+        .ll-tabs button { flex:0 0 auto !important; min-width:92px; }
+      }
+      @media (max-width: 480px) {
+        .ll-floating-toolbar button { font-size:0 !important; }
+        .ll-floating-toolbar button svg { width:17px; height:17px; }
+      }
+    `}</style>
+    <div className="ll-shell" style={{ background: C.bg, fontFamily: "Inter, sans-serif", color: C.text }}>
 
       {/* ── SIDEBAR ── */}
-      <aside style={{
+      <aside className="ll-sidebar" style={{
         width: 218, flexShrink: 0,
         background: C.bgAlt,
         borderRight: `1px solid ${C.border}`,
@@ -1321,16 +1509,15 @@ function Dashboard({ onBack }: { onBack: () => void }) {
 
         </nav>
 
-        {/* profile */}
-        <div style={{ padding: "12px 14px", borderTop: `1px solid ${C.border}`, background: C.bgAlt }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-            <div style={{ width: 32, height: 32, borderRadius: "50%", background: C.green, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800, color: "#fff" }}>P</div>
-            <div>
-              <p style={{ fontSize: 13, fontWeight: 600, color: C.text, lineHeight: 1.2 }}>Pari</p>
-              <p style={{ fontSize: 11, color: C.textDim }}>pariijust@gmail.com</p>
-            </div>
-          </div>
+        {/* subtle creator credit — no personal email needed in the app shell */}
+        <div style={{
+          flexShrink: 0, padding: "12px 16px 16px",
+          borderTop: `1px solid ${C.border}`,
+          textAlign: "center",
+        }}>
+          <span style={{ ...hand, fontSize: 15, fontWeight: 600, color: C.greenMid }}>Made by Pari</span>
         </div>
+
       </aside>
 
       {/* ── MAIN ── */}
@@ -1368,9 +1555,15 @@ function Dashboard({ onBack }: { onBack: () => void }) {
           <div style={{ flex: 1 }} />
 
           {/* search */}
-          <div style={{ display: "flex", alignItems: "center", gap: 7, background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: "7px 12px", maxWidth: 180, boxShadow: `0 1px 4px ${C.shadow}` }}>
+          <div className="ll-top-search" style={{ alignItems: "center", gap: 7, background: C.card, border: `1px solid ${C.border}`, borderRadius: 10, padding: "7px 12px", maxWidth: 180, boxShadow: `0 1px 4px ${C.shadow}` }}>
             <Search size={13} color={C.textDim} />
-            <input placeholder="Search..." style={{ background: "transparent", border: "none", outline: "none", color: C.text, fontSize: 12.5, width: "100%", fontFamily: "Inter, sans-serif" }} />
+            <input
+              value={globalSearch}
+              onChange={(e) => setGlobalSearch(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleGlobalSearch(); }}
+              placeholder="Search notes or transcript..."
+              style={{ background: "transparent", border: "none", outline: "none", color: C.text, fontSize: 12.5, width: "100%", fontFamily: "Inter, sans-serif" }}
+            />
           </div>
 
           {/* bell */}
@@ -1379,8 +1572,20 @@ function Dashboard({ onBack }: { onBack: () => void }) {
             <span style={{ position: "absolute", top: 8, right: 8, width: 5.5, height: 5.5, borderRadius: "50%", background: C.green }} />
           </button>
 
-          {/* avatar */}
-          <button onClick={() => { setShowProfile(v => !v); setShowNotifications(false); }} style={{ width: 32, height: 32, borderRadius: "50%", background: C.green, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800, color: "#fff", cursor: "pointer", boxShadow: `0 2px 8px ${C.greenGlow}`, border: "none" }}>P</button>
+          {/* settings — restores Light / Dark appearance controls */}
+          <button
+            onClick={() => { setShowSettings(true); setShowNotifications(false); setShowProfile(false); }}
+            title="Settings"
+            aria-label="Open settings"
+            style={{
+              width: 34, height: 34, borderRadius: 9,
+              background: C.card, border: `1px solid ${C.border}`,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              cursor: "pointer", boxShadow: `0 1px 4px ${C.shadow}`, flexShrink: 0,
+            }}
+          >
+            <Settings size={15} color={C.textMuted} strokeWidth={1.8} />
+          </button>
 
           {/* back */}
           <button onClick={onBack} title="Back to landing" style={{ width: 30, height: 30, borderRadius: 8, background: "transparent", border: `1px solid ${C.border}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.textDim }}>
@@ -1395,15 +1600,7 @@ function Dashboard({ onBack }: { onBack: () => void }) {
           </div>
         )}
 
-        {showProfile && (
-          <div style={{ position: "absolute", zIndex: 50, top: 64, right: 38, width: 230, ...card({ padding: 14 }) }}>
-            <strong style={{ fontSize: 14, color: C.text }}>Pari</strong>
-            <p style={{ fontSize: 11.5, color: C.textDim, marginTop: 2 }}>pariijust@gmail.com</p>
-            <button onClick={() => { setShowProfile(false); setShowSettings(true); }} style={{ marginTop: 12, width: "100%", padding: "9px 10px", borderRadius: 9, border: `1px solid ${C.border}`, background: C.cardWarm, cursor: "pointer", color: C.text, textAlign: "left" }}>
-              Settings
-            </button>
-          </div>
-        )}
+
 
         {analysisError && (
           <div style={{
@@ -1459,10 +1656,10 @@ function Dashboard({ onBack }: { onBack: () => void }) {
             </div>
           </div>
         ) : (
-        <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+        <div className="ll-workspace" style={{ flex: 1, display: "flex", overflow: "hidden" }}>
 
           {/* LEFT: video + recent */}
-          <div style={{ flex: "0 0 57%", display: "flex", flexDirection: "column", borderRight: `1px solid ${C.border}`, overflow: "hidden" }}>
+          <div className="ll-video-pane" style={{ flex: "0 0 57%", display: "flex", flexDirection: "column", borderRight: `1px solid ${C.border}`, overflow: "hidden" }}>
 
             {/* video player */}
             <div style={{ flexShrink: 0 }}>
@@ -1497,29 +1694,6 @@ function Dashboard({ onBack }: { onBack: () => void }) {
                       </div>
                     )}
                   </div>
-                  <div style={{ position: "absolute", bottom: 10, left: 12, ...mono, fontSize: 11, color: "#fff", background: "rgba(0,0,0,0.68)", padding: "3px 8px", borderRadius: 5 }}>05:42 / 1:24:30</div>
-                  <div style={{ position: "absolute", top: 10, right: 10, ...mono, fontSize: 10, color: "#aaa", background: "rgba(0,0,0,0.55)", border: "1px solid rgba(255,255,255,0.08)", padding: "2px 7px", borderRadius: 5 }}>HD 1080p</div>
-                </div>
-                {/* progress */}
-                <div style={{ height: 3, background: "#1f2937", cursor: "pointer" }}>
-                  <div style={{ width: "40%", height: "100%", background: C.green, position: "relative" }}>
-                    <div style={{ position: "absolute", right: -5, top: "50%", transform: "translateY(-50%)", width: 10, height: 10, borderRadius: "50%", background: "#fff", boxShadow: "0 0 5px rgba(255,255,255,0.4)" }} />
-                  </div>
-                </div>
-                {/* controls */}
-                <div style={{ background: "#0a0a0a", padding: "8px 14px", display: "flex", alignItems: "center", gap: 13 }}>
-                  <SkipBack size={14} color="#555" style={{ cursor: "pointer" }} />
-                  <button onClick={() => setIsPlaying(!isPlaying)} style={{ width: 30, height: 30, borderRadius: "50%", background: C.green, display: "flex", alignItems: "center", justifyContent: "center", border: "none", cursor: "pointer" }}>
-                    {isPlaying ? <Pause size={13} fill="#fff" color="#fff" /> : <Play size={13} fill="#fff" color="#fff" />}
-                  </button>
-                  <SkipForward size={14} color="#555" style={{ cursor: "pointer" }} />
-                  <Volume2 size={14} color="#555" />
-                  <div style={{ width: 72, height: 3, background: "#333", borderRadius: 2 }}>
-                    <div style={{ width: "70%", height: "100%", background: "#555", borderRadius: 2 }} />
-                  </div>
-                  <span style={{ ...mono, fontSize: 11, color: "#555", marginLeft: "auto" }}>1.25×</span>
-                  <span style={{ ...mono, fontSize: 11, color: "#444" }}>CC</span>
-                  <Maximize size={13} color="#444" style={{ cursor: "pointer" }} />
                 </div>
               </div>
             </div>
@@ -1545,19 +1719,11 @@ function Dashboard({ onBack }: { onBack: () => void }) {
               </div>
             </div>
 
-            {/* workspace helper */}
-            <div style={{ flex: 1, overflowY: "auto", padding: "16px 18px", background: C.bg }}>
-              <div style={{ ...card({ padding: 16, background: C.cardWarm }) }}>
-                <strong style={{ fontSize: 13, color: C.text }}>Current lecture workspace</strong>
-                <p style={{ marginTop: 6, fontSize: 12, color: C.textDim, lineHeight: 1.55 }}>
-                  Use the tabs on the right for notes, transcript, concepts and AI chat. Fake recent-session cards have been removed.
-                </p>
-              </div>
-            </div>
+
           </div>
 
           {/* RIGHT: AI workspace */}
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
+          <div className="ll-ai-pane" style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
 
             {/* header */}
             <div style={{ padding: "12px 16px", borderBottom: `1px solid ${C.border}`, flexShrink: 0, background: C.cardWarm }}>
@@ -1578,7 +1744,7 @@ function Dashboard({ onBack }: { onBack: () => void }) {
               </div>
 
               {/* tabs */}
-              <div style={{ display: "flex", gap: 2, background: C.bgAlt, borderRadius: 10, padding: 3 }}>
+              <div className="ll-tabs" style={{ display: "flex", gap: 2, background: C.bgAlt, borderRadius: 10, padding: 3 }}>
                 {tabs.map(({ id, label, icon: Icon }) => {
                   const active = activeTab === id as typeof activeTab;
                   return (
@@ -1693,6 +1859,218 @@ function Dashboard({ onBack }: { onBack: () => void }) {
                 </div>
               )}
 
+              {/* FLASHCARDS */}
+              {activeTab === "flashcards" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                    <div>
+                      <h3 style={{ ...hand, margin: 0, color: C.text, fontSize: 19 }}>
+                        Lecture Flashcards
+                      </h3>
+                      <p style={{ margin: "3px 0 0", color: C.textDim, fontSize: 11.5 }}>
+                        Generated from the current lecture
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => void openGeneratedTool("flashcards")}
+                      disabled={generatedToolLoading === "flashcards"}
+                      style={{
+                        ...pillBtn(C.green, "#fff"),
+                        opacity: generatedToolLoading === "flashcards" ? 0.65 : 1,
+                      }}
+                    >
+                      <Sparkles size={12} />
+                      {generatedToolLoading === "flashcards" ? "Generating..." : "Regenerate"}
+                    </button>
+                  </div>
+
+                  {generatedToolLoading === "flashcards" && (
+                    <div style={{ ...card, padding: 18, color: C.textDim, fontSize: 12.5 }}>
+                      Generating flashcards from this lecture...
+                    </div>
+                  )}
+
+                  {generatedToolError && generatedToolLoading !== "flashcards" && (
+                    <div
+                      style={{
+                        padding: "11px 13px",
+                        borderRadius: 10,
+                        background: "#FFF1F0",
+                        border: "1px solid #F2C8C3",
+                        color: "#9B3A32",
+                        fontSize: 12,
+                      }}
+                    >
+                      {generatedToolError}
+                    </div>
+                  )}
+
+                  {!generatedToolLoading &&
+                    flashcards.map((flashcard: any, index: number) => (
+                      <details key={index} style={{ ...card, padding: "13px 15px" }}>
+                        <summary
+                          style={{
+                            cursor: "pointer",
+                            color: C.text,
+                            fontWeight: 700,
+                            fontSize: 13.5,
+                            lineHeight: 1.5,
+                          }}
+                        >
+                          {index + 1}. {flashcard.question}
+                        </summary>
+
+                        <div
+                          style={{
+                            marginTop: 10,
+                            paddingTop: 10,
+                            borderTop: `1px solid ${C.border}`,
+                            color: C.textMuted,
+                            fontSize: 12.5,
+                            lineHeight: 1.65,
+                          }}
+                        >
+                          {flashcard.answer || "No answer returned."}
+                        </div>
+                      </details>
+                    ))}
+                </div>
+              )}
+
+              {/* QUIZZES */}
+              {activeTab === "quizzes" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                    <div>
+                      <h3 style={{ ...hand, margin: 0, color: C.text, fontSize: 19 }}>
+                        Lecture Quiz
+                      </h3>
+                      <p style={{ margin: "3px 0 0", color: C.textDim, fontSize: 11.5 }}>
+                        Test yourself on the current lecture
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => void openGeneratedTool("quizzes")}
+                      disabled={generatedToolLoading === "quizzes"}
+                      style={{
+                        ...pillBtn(C.green, "#fff"),
+                        opacity: generatedToolLoading === "quizzes" ? 0.65 : 1,
+                      }}
+                    >
+                      <Sparkles size={12} />
+                      {generatedToolLoading === "quizzes" ? "Generating..." : "Regenerate"}
+                    </button>
+                  </div>
+
+                  {generatedToolLoading === "quizzes" && (
+                    <div style={{ ...card, padding: 18, color: C.textDim, fontSize: 12.5 }}>
+                      Generating quiz questions from this lecture...
+                    </div>
+                  )}
+
+                  {generatedToolError && generatedToolLoading !== "quizzes" && (
+                    <div
+                      style={{
+                        padding: "11px 13px",
+                        borderRadius: 10,
+                        background: "#FFF1F0",
+                        border: "1px solid #F2C8C3",
+                        color: "#9B3A32",
+                        fontSize: 12,
+                      }}
+                    >
+                      {generatedToolError}
+                    </div>
+                  )}
+
+                  {!generatedToolLoading &&
+                    quizQuestions.map((question: any, index: number) => {
+                      const selected = selectedQuizAnswers[index];
+                      const correct = String(question.correctAnswer ?? "");
+
+                      return (
+                        <div key={index} style={{ ...card, padding: "14px 15px" }}>
+                          <div
+                            style={{
+                              color: C.text,
+                              fontWeight: 700,
+                              fontSize: 13.5,
+                              lineHeight: 1.5,
+                              marginBottom: 10,
+                            }}
+                          >
+                            {index + 1}. {question.question}
+                          </div>
+
+                          {question.options.length > 0 ? (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                              {question.options.map((option: string, optionIndex: number) => {
+                                const isSelected = selected === option;
+
+                                return (
+                                  <button
+                                    key={`${index}-${optionIndex}`}
+                                    onClick={() =>
+                                      setSelectedQuizAnswers((prev) => ({
+                                        ...prev,
+                                        [index]: option,
+                                      }))
+                                    }
+                                    style={{
+                                      textAlign: "left",
+                                      padding: "9px 11px",
+                                      borderRadius: 9,
+                                      border: `1px solid ${isSelected ? C.green : C.border}`,
+                                      background: isSelected ? "#E8F3EC" : C.cardWarm,
+                                      color: C.text,
+                                      cursor: "pointer",
+                                      fontSize: 12.5,
+                                      fontFamily: "Inter, sans-serif",
+                                    }}
+                                  >
+                                    {option}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div style={{ color: C.textMuted, fontSize: 12.5 }}>
+                              {correct
+                                ? `Answer: ${correct}`
+                                : "No options returned by the backend."}
+                            </div>
+                          )}
+
+                          {selected && correct && (
+                            <div
+                              style={{
+                                marginTop: 10,
+                                padding: "8px 10px",
+                                borderRadius: 8,
+                                fontSize: 12,
+                                background: selected === correct ? "#ECFDF3" : "#FFF1F0",
+                                color: selected === correct ? "#18794E" : "#9B3A32",
+                                border: `1px solid ${
+                                  selected === correct ? "#B7E4C7" : "#F2C8C3"
+                                }`,
+                              }}
+                            >
+                              {selected === correct
+                                ? "Correct!"
+                                : `Correct answer: ${correct}`}
+                              {question.explanation
+                                ? ` — ${question.explanation}`
+                                : ""}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+
               {/* AI CHAT */}
               {activeTab === "chat" && (
                 <div style={{ display: "flex", flexDirection: "column", minHeight: 400 }}>
@@ -1763,7 +2141,7 @@ function Dashboard({ onBack }: { onBack: () => void }) {
     </div>
 
       {/* ── FLOATING BOTTOM TOOLBAR ── */}
-      <div style={{
+      <div className="ll-floating-toolbar" style={{
         position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)",
         background: C.card, border: `1px solid ${C.border}`,
         borderRadius: 999, padding: "8px 18px",
@@ -1837,7 +2215,7 @@ function Dashboard({ onBack }: { onBack: () => void }) {
               <button onClick={() => setTheme("dark")} style={{ ...pillBtn(theme === "dark" ? C.green : C.cardWarm, theme === "dark" ? "#fff" : C.text, C.border), flex: 1, justifyContent: "center" }}>Dark</button>
             </div>
 
-            <button onClick={() => setShowSettings(false)} style={{ ...pillBtn(C.green, "#fff"), width: "100%", justifyContent: "center", marginTop: 22, padding: "11px 14px" }}>
+            <button onClick={handleSaveSettings} style={{ ...pillBtn(C.green, "#fff"), width: "100%", justifyContent: "center", marginTop: 22, padding: "11px 14px" }}>
               Save settings
             </button>
           </div>
@@ -1855,7 +2233,11 @@ export default function App() {
     <div style={{ fontFamily: "Inter, sans-serif" }}>
       <style>{`
         *, *::before, *::after { box-sizing: border-box; }
-        body { margin: 0; background: #F5F0E6; }
+        body { margin: 0; background: #F5F0E6; transition: background .2s ease; }
+        body[data-theme="dark"] { color-scheme: dark; }
+        body[data-theme="dark"] input,
+        body[data-theme="dark"] select,
+        body[data-theme="dark"] textarea { color-scheme: dark; }
         ::-webkit-scrollbar { width: 4px; height: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: rgba(26,71,49,0.15); border-radius: 2px; }

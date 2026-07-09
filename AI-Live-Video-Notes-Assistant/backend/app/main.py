@@ -22,21 +22,19 @@ app = FastAPI(
 # =========================================================
 # CORS CONFIGURATION
 # =========================================================
-# Allows:
-# - localhost:5173
-# - localhost:5174
-# - 127.0.0.1:5173
-# - 127.0.0.1:5174
-# - deployed Vercel frontend
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        # Local frontend
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:5174",
         "http://127.0.0.1:5174",
+
+        # Vercel frontends
         "https://lecture-lens-kappa.vercel.app",
+        "https://lecture-lens-frontend-kxzq.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],

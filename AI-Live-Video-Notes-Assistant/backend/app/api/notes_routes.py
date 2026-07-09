@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.services.transcript_service import get_transcript
@@ -24,16 +24,13 @@ class NotesRequest(BaseModel):
 def generate_ai_notes(data: NotesRequest):
     """
     Fetch transcript first, then generate AI notes.
-
-    Compatible with the new structured response
-    returned by get_transcript().
     """
 
     try:
-        print("=" * 50)
-        print("AI Notes request received")
+        print("\n" + "=" * 60)
+        print("AI NOTES REQUEST RECEIVED")
         print("URL:", data.url)
-        print("=" * 50)
+        print("=" * 60)
 
         # -----------------------------------------
         # FETCH TRANSCRIPT
@@ -42,10 +39,8 @@ def generate_ai_notes(data: NotesRequest):
         transcript_result = get_transcript(data.url)
 
         print(
-            "Transcript result success:",
-            transcript_result.get("success")
-            if isinstance(transcript_result, dict)
-            else "invalid_result"
+            "Transcript result type:",
+            type(transcript_result).__name__
         )
 
         # -----------------------------------------
@@ -53,55 +48,58 @@ def generate_ai_notes(data: NotesRequest):
         # -----------------------------------------
 
         if not isinstance(transcript_result, dict):
-            return {
-                "success": False,
-                "error": "invalid_transcript_response",
-                "message": (
+            raise HTTPException(
+                status_code=500,
+                detail=(
                     "Transcript service returned "
                     "an invalid response."
-                ),
-            }
+                )
+            )
 
-        if not transcript_result.get("success"):
-            return {
-                "success": False,
-                "error": transcript_result.get(
-                    "error",
-                    "transcript_unavailable",
-                ),
-                "message": transcript_result.get(
-                    "message",
-                    "Transcript not available.",
-                ),
-            }
-
-        # -----------------------------------------
-        # EXTRACT ACTUAL TRANSCRIPT STRING
-        # -----------------------------------------
-
-        transcript = transcript_result.get(
-            "transcript"
+        print(
+            "Transcript success:",
+            transcript_result.get("success")
         )
 
+        if not transcript_result.get("success"):
+            message = transcript_result.get(
+                "message",
+                "Transcript not available."
+            )
+
+            raise HTTPException(
+                status_code=422,
+                detail=message
+            )
+
+        # -----------------------------------------
+        # EXTRACT TRANSCRIPT
+        # -----------------------------------------
+
+        transcript = transcript_result.get("transcript")
+
         if not transcript:
-            return {
-                "success": False,
-                "error": "empty_transcript",
-                "message": (
+            raise HTTPException(
+                status_code=422,
+                detail=(
                     "Transcript was empty, so AI notes "
                     "could not be generated."
-                ),
-            }
+                )
+            )
 
         if not isinstance(transcript, str):
-            return {
-                "success": False,
-                "error": "invalid_transcript_type",
-                "message": (
-                    "Transcript must be text before "
-                    "AI notes can be generated."
-                ),
-            }
+            raise HTTPException(
+                status_code=500,
+                detail="Transcript must be text."
+            )
+
+        transcript = transcript.strip()
+
+        if len(transcript) < 20:
+            raise HTTPException(
+                status_code=422,
+                detail="Transcript is too short."
+            )
 
         print(
             "Transcript characters:",
@@ -112,22 +110,29 @@ def generate_ai_notes(data: NotesRequest):
         # GENERATE NOTES
         # -----------------------------------------
 
-        notes = generate_notes(
-            transcript
-        )
+        notes = generate_notes(transcript)
+
+        # -----------------------------------------
+        # VALIDATE NOTES
+        # -----------------------------------------
+
+        if not isinstance(notes, dict):
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "AI service returned invalid notes."
+                )
+            )
 
         if not notes:
-            return {
-                "success": False,
-                "error": "empty_ai_notes",
-                "message": (
-                    "AI service returned empty notes."
-                ),
-            }
+            raise HTTPException(
+                status_code=500,
+                detail="AI service returned empty notes."
+            )
 
-        print("=" * 50)
-        print("AI notes generated successfully")
-        print("=" * 50)
+        print("=" * 60)
+        print("AI NOTES GENERATED SUCCESSFULLY")
+        print("=" * 60 + "\n")
 
         # -----------------------------------------
         # SUCCESS RESPONSE
@@ -135,22 +140,25 @@ def generate_ai_notes(data: NotesRequest):
 
         return {
             "success": True,
-            "notes": notes,
+            "notes": notes
         }
+
+    except HTTPException:
+        raise
 
     except Exception as e:
-        print("=" * 50)
-        print(
-            "AI Notes Route Error:",
-            type(e).__name__,
-            str(e),
-        )
-        print("=" * 50)
+        print("\n" + "=" * 60)
+        print("AI NOTES ROUTE ERROR")
+        print("TYPE:", type(e).__name__)
+        print("ERROR:", repr(e))
+        print("=" * 60 + "\n")
 
-        return {
-            "success": False,
-            "error": type(e).__name__,
-            "message": (
-                "Could not generate AI notes."
-            ),
-        }
+        # Important:
+        # During local testing expose actual error
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"AI notes generation failed: "
+                f"{type(e).__name__}: {str(e)}"
+            )
+        )

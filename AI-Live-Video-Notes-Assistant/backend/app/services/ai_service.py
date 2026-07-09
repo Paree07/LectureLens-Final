@@ -2,49 +2,57 @@ import os
 import json
 import re
 
-from groq import Groq
 from dotenv import load_dotenv
+from groq import Groq
 
 
-# ===================================
+# =========================================================
 # LOAD ENVIRONMENT VARIABLES
-# ===================================
+# =========================================================
 
 load_dotenv()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-if not GROQ_API_KEY:
-    raise ValueError(
-        "GROQ_API_KEY not found. "
-        "Please add GROQ_API_KEY to your .env file."
-    )
 
-
-# ===================================
+# =========================================================
 # CREATE GROQ CLIENT
-# ===================================
+# =========================================================
 
-client = Groq(
-    api_key=GROQ_API_KEY
-)
+def get_groq_client():
+    """
+    Create client lazily so the entire backend does not crash
+    during import if environment variables are misconfigured.
+    """
+
+    api_key = os.getenv("GROQ_API_KEY")
+
+    if not api_key:
+        raise ValueError(
+            "GROQ_API_KEY not found. "
+            "Add GROQ_API_KEY to backend/.env"
+        )
+
+    return Groq(api_key=api_key)
 
 
-# ===================================
+# =========================================================
 # CLEAN AI JSON RESPONSE
-# ===================================
+# =========================================================
 
 def clean_json_response(text: str):
     """
-    Safely extracts JSON from the AI response.
+    Extract and parse a JSON object from AI response.
     """
 
     if not text:
-        raise ValueError("AI returned empty response")
+        raise ValueError(
+            "AI returned an empty response"
+        )
 
     text = text.strip()
 
-    # Remove ```json
+    # Remove markdown fences
     text = re.sub(
         r"^```json\s*",
         "",
@@ -52,47 +60,75 @@ def clean_json_response(text: str):
         flags=re.IGNORECASE
     )
 
-    # Remove opening ```
     text = re.sub(
         r"^```\s*",
         "",
         text
     )
 
-    # Remove closing ```
     text = re.sub(
         r"\s*```$",
         "",
         text
     )
 
-    # Find JSON object
+    text = text.strip()
+
+    # First try direct JSON parse
+    try:
+        parsed = json.loads(text)
+
+        if not isinstance(parsed, dict):
+            raise ValueError(
+                "AI JSON response must be an object"
+            )
+
+        return parsed
+
+    except json.JSONDecodeError:
+        pass
+
+    # Fallback: extract outer JSON object
     start = text.find("{")
     end = text.rfind("}")
 
     if start == -1 or end == -1 or end <= start:
         raise ValueError(
-            "No valid JSON object found in AI response"
+            "No valid JSON object found "
+            "in AI response"
         )
 
     json_text = text[start:end + 1]
 
-    return json.loads(json_text)
+    try:
+        parsed = json.loads(json_text)
+
+    except json.JSONDecodeError as e:
+        print("INVALID JSON TEXT:")
+        print(json_text)
+
+        raise ValueError(
+            f"AI returned invalid JSON: {str(e)}"
+        )
+
+    if not isinstance(parsed, dict):
+        raise ValueError(
+            "AI JSON response must be an object"
+        )
+
+    return parsed
 
 
-# ===================================
+# =========================================================
 # REDUCE LONG TRANSCRIPTS
-# ===================================
+# =========================================================
 
 def reduce_transcript(
     transcript: str,
-    max_chars: int = 12000
+    max_chars: int = 10000
 ):
     """
-    Reduces very long transcripts so the request
-    stays under token limits.
-
-    Keeps:
+    Reduce long transcript while preserving:
     - beginning
     - middle
     - ending
@@ -103,27 +139,25 @@ def reduce_transcript(
 
     transcript = transcript.strip()
 
-    # If transcript is already short
     if len(transcript) <= max_chars:
         print(
-            f"Transcript is within safe limit: "
-            f"{len(transcript)} characters"
+            "Transcript within safe limit:",
+            len(transcript),
+            "characters"
         )
 
         return transcript
 
     print(
-        f"Long transcript detected: "
-        f"{len(transcript)} characters"
+        "Long transcript detected:",
+        len(transcript),
+        "characters"
     )
 
-    # Divide allowed size into 3 parts
     part_size = max_chars // 3
 
-    # Beginning
     beginning = transcript[:part_size]
 
-    # Middle
     middle_start = max(
         0,
         (len(transcript) // 2)
@@ -135,36 +169,213 @@ def reduce_transcript(
         middle_start + part_size
     ]
 
-    # Ending
     ending = transcript[-part_size:]
 
-    reduced = f"""
-LECTURE BEGINNING:
-
-{beginning}
-
-
-LECTURE MIDDLE:
-
-{middle}
-
-
-LECTURE END:
-
-{ending}
-"""
+    reduced = (
+        "LECTURE BEGINNING:\n\n"
+        f"{beginning}\n\n"
+        "LECTURE MIDDLE:\n\n"
+        f"{middle}\n\n"
+        "LECTURE END:\n\n"
+        f"{ending}"
+    )
 
     print(
-        f"Transcript reduced to: "
-        f"{len(reduced)} characters"
+        "Transcript reduced to:",
+        len(reduced),
+        "characters"
     )
 
     return reduced
 
 
-# ===================================
+# =========================================================
+# NORMALIZE NOTES
+# =========================================================
+
+def normalize_notes(notes: dict):
+    """
+    Ensure frontend always receives predictable structure.
+    """
+
+    summary = notes.get("summary", "")
+
+    key_concepts = notes.get(
+        "key_concepts",
+        []
+    )
+
+    definitions = notes.get(
+        "definitions",
+        []
+    )
+
+    exam_tips = notes.get(
+        "exam_tips",
+        []
+    )
+
+    # -----------------------------------------
+    # SUMMARY
+    # -----------------------------------------
+
+    if not isinstance(summary, str):
+        summary = str(summary)
+
+    # -----------------------------------------
+    # KEY CONCEPTS
+    # -----------------------------------------
+
+    if not isinstance(key_concepts, list):
+        key_concepts = []
+
+    normalized_concepts = []
+
+    for item in key_concepts:
+        if isinstance(item, str):
+            normalized_concepts.append(item)
+
+        elif isinstance(item, dict):
+            value = (
+                item.get("concept")
+                or item.get("title")
+                or item.get("name")
+                or item.get("text")
+            )
+
+            if value:
+                normalized_concepts.append(
+                    str(value)
+                )
+
+    # -----------------------------------------
+    # DEFINITIONS
+    # -----------------------------------------
+
+    if not isinstance(definitions, list):
+        definitions = []
+
+    normalized_definitions = []
+
+    for item in definitions:
+
+        if isinstance(item, dict):
+            term = (
+                item.get("term")
+                or item.get("name")
+                or item.get("title")
+                or ""
+            )
+
+            meaning = (
+                item.get("meaning")
+                or item.get("definition")
+                or item.get("description")
+                or ""
+            )
+
+            if term or meaning:
+                normalized_definitions.append({
+                    "term": str(term),
+                    "meaning": str(meaning)
+                })
+
+        elif isinstance(item, str):
+            normalized_definitions.append({
+                "term": "Concept",
+                "meaning": item
+            })
+
+    # -----------------------------------------
+    # EXAM TIPS
+    # -----------------------------------------
+
+    if not isinstance(exam_tips, list):
+        exam_tips = []
+
+    normalized_tips = []
+
+    for item in exam_tips:
+        if isinstance(item, str):
+            normalized_tips.append(item)
+
+        elif isinstance(item, dict):
+            value = (
+                item.get("tip")
+                or item.get("text")
+                or item.get("description")
+            )
+
+            if value:
+                normalized_tips.append(
+                    str(value)
+                )
+
+    return {
+        "summary": summary.strip(),
+        "key_concepts": normalized_concepts,
+        "definitions": normalized_definitions,
+        "exam_tips": normalized_tips
+    }
+
+
+# =========================================================
+# VALIDATE NOTES
+# =========================================================
+
+def validate_notes(notes: dict):
+
+    if not isinstance(notes, dict):
+        raise ValueError(
+            "Notes must be a JSON object"
+        )
+
+    required_keys = [
+        "summary",
+        "key_concepts",
+        "definitions",
+        "exam_tips"
+    ]
+
+    for key in required_keys:
+        if key not in notes:
+            raise ValueError(
+                f"Missing required field: {key}"
+            )
+
+    if not notes["summary"]:
+        raise ValueError(
+            "AI returned empty summary"
+        )
+
+    if not isinstance(
+        notes["key_concepts"],
+        list
+    ):
+        raise ValueError(
+            "key_concepts must be a list"
+        )
+
+    if not isinstance(
+        notes["definitions"],
+        list
+    ):
+        raise ValueError(
+            "definitions must be a list"
+        )
+
+    if not isinstance(
+        notes["exam_tips"],
+        list
+    ):
+        raise ValueError(
+            "exam_tips must be a list"
+        )
+
+
+# =========================================================
 # GENERATE AI NOTES
-# ===================================
+# =========================================================
 
 def generate_notes(transcript: str):
 
@@ -173,329 +384,223 @@ def generate_notes(transcript: str):
             "Transcript is empty"
         )
 
-    # -----------------------------------
-    # Reduce long transcript
-    # -----------------------------------
+    if not isinstance(transcript, str):
+        raise TypeError(
+            "Transcript must be a string"
+        )
+
+    transcript = transcript.strip()
+
+    if len(transcript) < 20:
+        raise ValueError(
+            "Transcript is too short"
+        )
+
+    # -----------------------------------------
+    # REDUCE TRANSCRIPT
+    # -----------------------------------------
 
     safe_transcript = reduce_transcript(
-        transcript,
-        max_chars=12000
+    transcript,
+    max_chars=4500
     )
 
+    # -----------------------------------------
+    # CREATE CLIENT
+    # -----------------------------------------
 
-    # -----------------------------------
-    # AI PROMPT
-    # -----------------------------------
+    client = get_groq_client()
 
-    prompt = f"""
-You are an expert multilingual lecture assistant
-and academic study-notes generator.
+    # -----------------------------------------
+    # SYSTEM PROMPT
+    # -----------------------------------------
 
-The lecture transcript may be written or spoken in:
+    system_prompt = (
+        "You are an expert multilingual academic "
+        "lecture assistant. You understand English, "
+        "Hindi, Hinglish, and mixed-language lectures. "
+        "Always produce final study notes in natural "
+        "English. Preserve technical meaning. "
+        "Return only valid JSON. Do not use markdown."
+    )
 
+    # -----------------------------------------
+    # USER PROMPT
+    # -----------------------------------------
+
+    user_prompt = f"""
+Analyze the following lecture transcript.
+
+The transcript may contain:
 - English
 - Hindi
 - Hinglish
 - Mixed Hindi-English
-- Any other language
+- Speech-to-text mistakes
 
-You must understand the meaning of the transcript
-regardless of its original language.
+Understand the meaning of the lecture and generate
+clear academic study notes in ENGLISH.
 
-
-LANGUAGE RULES:
-
-1. ALWAYS generate the final notes in ENGLISH.
-
-2. If the transcript is Hindi:
-   understand the Hindi content and convert
-   the meaning into clear natural English notes.
-
-3. If the transcript is Hinglish:
-   understand both Hindi and English parts
-   and write unified English notes.
-
-4. If the transcript is already English:
-   generate polished English study notes.
-
-5. Do NOT perform literal word-by-word translation.
-
-6. Write natural, meaningful academic English.
-
-7. Preserve technical terms correctly.
-
-8. Do NOT output Hindi text.
-
-9. Do NOT output Devanagari characters.
-
-10. Every field must be written in English:
-    - summary
-    - key concepts
-    - definitions
-    - exam tips
-
-
-IMPORTANT JSON RULES:
-
-Return ONLY one valid JSON object.
-
-Do not return markdown.
-
-Do not return ```json.
-
-Do not write explanations before JSON.
-
-Do not write explanations after JSON.
-
-Use double quotes for:
-- keys
-- string values
-
-Do not use trailing commas.
-
-
-USE EXACTLY THIS JSON STRUCTURE:
+Return ONLY valid JSON using exactly this structure:
 
 {{
-  "summary": "A concise English summary of the lecture",
-
+  "summary": "Clear concise English summary",
   "key_concepts": [
-    "English key concept 1",
-    "English key concept 2",
-    "English key concept 3",
-    "English key concept 4",
-    "English key concept 5"
+    "Concept 1",
+    "Concept 2",
+    "Concept 3",
+    "Concept 4",
+    "Concept 5"
   ],
-
   "definitions": [
     {{
-      "term": "Important term in English",
-      "meaning": "Clear English explanation"
+      "term": "Important term",
+      "meaning": "Clear explanation"
     }}
   ],
-
   "exam_tips": [
-    "Practical exam tip in English",
-    "Another exam tip in English"
+    "Exam tip 1",
+    "Exam tip 2"
   ]
 }}
 
-
-CONTENT RULES:
-
-- Summary must be concise but meaningful.
-
-- Summary must explain the main lecture topic.
-
+Rules:
+- Output English only.
+- Do not output markdown.
+- Do not use code fences.
+- Do not write text before JSON.
+- Do not write text after JSON.
 - Give 5 to 8 key concepts.
-
-- All key concepts must be in English.
-
-- Give 3 to 6 useful definitions
-  when possible.
-
-- Definition terms must be in English.
-
-- Definition meanings must be in English.
-
-- Give 2 to 5 practical exam tips.
-
-- Exam tips must be in English.
-
-- Do not invent facts that are not supported
-  by the transcript.
-
-- Correct obvious speech-to-text mistakes
-  when the intended meaning is clear.
-
-- Preserve programming terms,
-  technical terms, framework names,
-  library names and product names.
-
-- Keep the output concise.
-
-- The final response must be valid JSON.
-
-- FINAL OUTPUT LANGUAGE MUST ALWAYS BE ENGLISH.
-
+- Give 3 to 6 definitions when possible.
+- Give 2 to 5 useful exam tips.
+- Do not invent unsupported facts.
+- Correct obvious transcript mistakes only when meaning is clear.
+- Preserve formulas and technical terminology.
 
 LECTURE TRANSCRIPT:
 
 {safe_transcript}
 """
 
+    # -----------------------------------------
+    # DEBUG
+    # -----------------------------------------
 
-    # -----------------------------------
+    print("\n" + "=" * 60)
+    print("GENERATING AI NOTES")
+    print(
+        "Original transcript characters:",
+        len(transcript)
+    )
+    print(
+        "Characters sent to AI:",
+        len(safe_transcript)
+    )
+    print(
+        "Model:",
+        "llama-3.1-8b-instant"
+    )
+    print("=" * 60)
+
+    # -----------------------------------------
     # CALL GROQ
-    # -----------------------------------
+    # -----------------------------------------
 
     try:
-
-        print("=" * 50)
-        print("Generating AI notes...")
-
-        print(
-            "Original transcript characters:",
-            len(transcript)
-        )
-
-        print(
-            "Transcript characters sent to AI:",
-            len(safe_transcript)
-        )
-
-        print(
-            "Using model:",
-            "llama-3.1-8b-instant"
-        )
-
-        print("=" * 50)
-
-
         response = client.chat.completions.create(
-
             model="llama-3.1-8b-instant",
 
             messages=[
                 {
                     "role": "system",
-                    "content": (
-                        "You are a multilingual academic "
-                        "study assistant. "
-                        "You understand English, Hindi, "
-                        "Hinglish and other languages. "
-                        "Regardless of the transcript language, "
-                        "always generate all final notes "
-                        "in clear natural English. "
-                        "Never output Hindi or Devanagari text. "
-                        "Always return strict valid JSON only."
-                    )
+                    "content": system_prompt
                 },
-
                 {
                     "role": "user",
-                    "content": prompt
+                    "content": user_prompt
                 }
             ],
 
             temperature=0.1,
 
-            response_format={
-                "type": "json_object"
-            },
+            # Intentionally removed response_format
+            # for broader compatibility
 
-            max_tokens=1200
+            max_tokens=1600
         )
-
-
-        # -----------------------------------
-        # GET AI RESPONSE
-        # -----------------------------------
-
-        result = (
-            response
-            .choices[0]
-            .message
-            .content
-        )
-
-        if not result:
-            raise ValueError(
-                "AI returned an empty response"
-            )
-
-
-        # -----------------------------------
-        # DEBUG OUTPUT
-        # -----------------------------------
-
-        print("RAW AI RESPONSE:")
-        print(result)
-
-
-        # -----------------------------------
-        # CLEAN JSON
-        # -----------------------------------
-
-        notes = clean_json_response(
-            result
-        )
-
-
-        # -----------------------------------
-        # FINAL VALIDATION
-        # -----------------------------------
-
-        required_keys = [
-            "summary",
-            "key_concepts",
-            "definitions",
-            "exam_tips"
-        ]
-
-        for key in required_keys:
-            if key not in notes:
-                raise ValueError(
-                    f"Missing required field: {key}"
-                )
-
-
-        # -----------------------------------
-        # TYPE VALIDATION
-        # -----------------------------------
-
-        if not isinstance(
-            notes["summary"],
-            str
-        ):
-            raise ValueError(
-                "summary must be a string"
-            )
-
-        if not isinstance(
-            notes["key_concepts"],
-            list
-        ):
-            raise ValueError(
-                "key_concepts must be a list"
-            )
-
-        if not isinstance(
-            notes["definitions"],
-            list
-        ):
-            raise ValueError(
-                "definitions must be a list"
-            )
-
-        if not isinstance(
-            notes["exam_tips"],
-            list
-        ):
-            raise ValueError(
-                "exam_tips must be a list"
-            )
-
-
-        print("=" * 50)
-        print(
-            "AI notes generated successfully"
-        )
-        print("=" * 50)
-
-
-        return notes
-
 
     except Exception as e:
+        print("\n" + "=" * 60)
+        print("GROQ API CALL FAILED")
+        print("TYPE:", type(e).__name__)
+        print("ERROR:", repr(e))
+        print("=" * 60 + "\n")
 
-        print("=" * 50)
-
-        print(
-            "AI NOTES ERROR:",
-            repr(e)
+        raise RuntimeError(
+            f"Groq API call failed: "
+            f"{type(e).__name__}: {str(e)}"
         )
 
-        print("=" * 50)
+    # -----------------------------------------
+    # VALIDATE GROQ RESPONSE
+    # -----------------------------------------
+
+    if not response:
+        raise ValueError(
+            "Groq returned no response"
+        )
+
+    if not response.choices:
+        raise ValueError(
+            "Groq returned no choices"
+        )
+
+    result = response.choices[0].message.content
+
+    if not result:
+        raise ValueError(
+            "Groq returned empty content"
+        )
+
+    # -----------------------------------------
+    # DEBUG RAW RESPONSE
+    # -----------------------------------------
+
+    print("\nRAW AI RESPONSE:")
+    print(result)
+
+    # -----------------------------------------
+    # PARSE JSON
+    # -----------------------------------------
+
+    try:
+        notes = clean_json_response(result)
+
+    except Exception as e:
+        print("\n" + "=" * 60)
+        print("AI JSON PARSING FAILED")
+        print("TYPE:", type(e).__name__)
+        print("ERROR:", repr(e))
+        print("RAW RESPONSE:")
+        print(result)
+        print("=" * 60 + "\n")
 
         raise
+
+    # -----------------------------------------
+    # NORMALIZE
+    # -----------------------------------------
+
+    notes = normalize_notes(notes)
+
+    # -----------------------------------------
+    # VALIDATE
+    # -----------------------------------------
+
+    validate_notes(notes)
+
+    print("\n" + "=" * 60)
+    print("AI NOTES GENERATED SUCCESSFULLY")
+    print("=" * 60 + "\n")
+
+    return notes
