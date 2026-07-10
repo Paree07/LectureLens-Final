@@ -1,7 +1,15 @@
-// LOCAL BACKEND TESTING
+// =====================================================
+// API BASE URL
+// =====================================================
 
+// LOCAL BACKEND TESTING
 export const API_BASE_URL =
-  "https://lecturelens-final-production.up.railway.app";
+  import.meta.env.VITE_API_BASE_URL ||
+  "http://127.0.0.1:8000";
+
+// When you later want Railway backend, replace above with:
+// export const API_BASE_URL =
+//   "https://lecturelens-production-5dec.up.railway.app";
 
 
 // =====================================================
@@ -122,12 +130,18 @@ export async function getYouTubeTranscript(
 // AI NOTES
 // =====================================================
 
-export async function generateAINotes(
-  url: string
-) {
+
+  
+  export async function generateAINotes(
+  url: string,
+  transcript?: string
+  ) {
   const data = await postJSON(
     "/api/ai/notes",
-    { url }
+    {
+      url,
+      transcript: transcript || null,
+    }
   );
 
   console.log(

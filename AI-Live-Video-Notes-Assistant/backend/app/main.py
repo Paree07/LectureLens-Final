@@ -8,31 +8,18 @@ from app.api.quiz_routes import router as quiz_router
 from app.api.flashcard_routes import router as flashcard_router
 from app.api.chat_routes import router as chat_router
 
-
-# =========================================================
-# FASTAPI APP
-# =========================================================
-
 app = FastAPI(
     title="LectureLens Backend",
     version="1.0.0"
 )
-
-
-# =========================================================
-# CORS CONFIGURATION
-# =========================================================
-
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-
-app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
         "https://lecture-lens-final.vercel.app",
         "https://lecture-lens-final-git-main-paree07s-projects.vercel.app",
     ],
@@ -42,50 +29,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# =========================================================
-# INCLUDE API ROUTERS
-# =========================================================
-
-app.include_router(
-    video_router,
-    prefix="/api",
-    tags=["Video Upload"]
-)
-
-app.include_router(
-    youtube_router,
-    prefix="/api",
-    tags=["YouTube"]
-)
-
-app.include_router(
-    notes_router,
-    prefix="/api",
-    tags=["AI Notes"]
-)
-
-app.include_router(
-    quiz_router,
-    prefix="/api",
-    tags=["AI Quiz"]
-)
-
-app.include_router(
-    flashcard_router,
-    prefix="/api",
-    tags=["AI Flashcards"]
-)
-
-app.include_router(
-    chat_router,
-    prefix="/api",
-    tags=["AI Chat"]
-)
-
-
-# =========================================================
-# ROOT ROUTE
-# =========================================================
+app.include_router(video_router, prefix="/api", tags=["Video Upload"])
+app.include_router(youtube_router, prefix="/api", tags=["YouTube"])
+app.include_router(notes_router, prefix="/api", tags=["AI Notes"])
+app.include_router(quiz_router, prefix="/api", tags=["AI Quiz"])
+app.include_router(flashcard_router, prefix="/api", tags=["AI Flashcards"])
+app.include_router(chat_router, prefix="/api", tags=["AI Chat"])
 
 @app.get("/")
 def home():
@@ -93,11 +42,6 @@ def home():
         "success": True,
         "message": "LectureLens Backend Running"
     }
-
-
-# =========================================================
-# HEALTH CHECK
-# =========================================================
 
 @app.get("/health")
 def health():

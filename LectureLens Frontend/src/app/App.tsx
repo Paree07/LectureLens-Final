@@ -1031,11 +1031,42 @@ function Dashboard({ onBack }: { onBack: () => void }) {
 
       // Metadata, transcript and AI notes are independent requests.
       // Promise.allSettled prevents one failed endpoint from hiding successful results.
-      const [metadataResult, transcriptResult, notesResult] = await Promise.allSettled([
-        getYouTubeMetadata(cleanUrl),
-        getYouTubeTranscript(cleanUrl),
-        generateAINotes(cleanUrl),
-      ]);
+      const metadataPromise = getYouTubeMetadata(cleanUrl);
+      const transcriptPromise = getYouTubeTranscript(cleanUrl);
+
+      const [metadataResult, transcriptResult] =
+      await Promise.allSettled([
+      metadataPromise,
+      transcriptPromise,
+     ]);
+
+     let transcriptText: string | undefined;
+
+     if (transcriptResult.status === "fulfilled") {
+     const transcriptData = transcriptResult.value;
+
+     setGeneratedTranscript(
+     normalizeTranscript(transcriptData)
+     );
+
+     transcriptText =
+     transcriptData?.transcript ??
+     transcriptData?.data?.transcript;
+     } else {
+     console.error(
+     "Transcript failed:",
+     transcriptResult.reason
+     );
+    }
+
+     const notesResult = await Promise.allSettled([
+     generateAINotes(
+     cleanUrl,
+     transcriptText
+     ),
+    ]);
+
+     const notes = notesResult[0];
 
       if (metadataResult.status === "fulfilled") {
         const metadata = metadataResult.value;
@@ -1051,16 +1082,16 @@ function Dashboard({ onBack }: { onBack: () => void }) {
       }
       setTranscriptLoading(false);
 
-      if (notesResult.status === "fulfilled") {
-        const realNotes = normalizeAINotes(notesResult.value);
-        console.log("REAL AI NOTES:", notesResult.value, realNotes);
+      if (notes.status === "fulfilled") {
+        const realNotes = normalizeAINotes(notes.value);        
+        console.log("REAL AI NOTES:", notes.value, realNotes);
         setGeneratedNotes(realNotes);
       } else {
-        console.error("AI notes failed:", notesResult.reason);
+        console.error("AI notes failed:", notes.reason);
       }
       setNotesLoading(false);
 
-      const failed = [metadataResult, transcriptResult, notesResult]
+      const failed = [metadataResult, transcriptResult, notes]
         .filter(result => result.status === "rejected").length;
 
       if (failed === 3) {
