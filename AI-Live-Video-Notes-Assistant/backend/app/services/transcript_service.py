@@ -196,17 +196,23 @@ def get_transcript_with_whisper_fallback(
         )
 
         ydl_options = {
-            "format": "bestaudio/best",
-            "outtmpl": output_template,
-            "quiet": True,
-            "no_warnings": True,
-            "noplaylist": True,
-            "retries": 2,
-            "fragment_retries": 2,
-            "socket_timeout": 30,
-            "max_filesize": 200 * 1024 * 1024,
-        }
+        "format": "bestaudio[ext=m4a]/bestaudio/best",
+        "outtmpl": output_template,
+        "quiet": False,
+        "no_warnings": False,
+        "noplaylist": True,
+        "retries": 3,
+        "fragment_retries": 3,
+        "socket_timeout": 30,
+        "max_filesize": 200 * 1024 * 1024,
 
+        # Try an alternate YouTube player client.
+        "extractor_args": {
+        "youtube": {
+                 "player_client": ["android_vr"],
+                }
+            },
+        }
         with yt_dlp.YoutubeDL(
             ydl_options
         ) as ydl:
