@@ -2,7 +2,8 @@ import os
 import re
 import shutil
 import tempfile
-from typing import Optional, Dict, Any
+import requests
+from typing import Optional, Dict, Any, List
 
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import (
@@ -13,7 +14,93 @@ from youtube_transcript_api._errors import (
     NoTranscriptFound,
 )
 
+# =========================================================
+# SUPADATA CONFIG
+# =========================================================
 
+SUPADATA_API_KEY = os.getenv("SUPADATA_API_KEY")
+
+
+# =========================================================
+# SUPADATA TRANSCRIPT
+# =========================================================
+
+def get_transcript_from_supadata(
+    url: str,
+) -> Optional[str]:
+
+    if not SUPADATA_API_KEY:
+        print("Supadata API key missing.")
+        return None
+
+    try:
+
+        print("=" * 60)
+        print("METHOD 0: SUPADATA")
+
+        response = requests.get(
+            "https://api.supadata.ai/v1/youtube/transcript",
+            params={
+                "url": url,
+            },
+            headers={
+                "x-api-key": SUPADATA_API_KEY,
+            },
+            timeout=60,
+        )
+
+        print(
+            "Supadata status:",
+            response.status_code,
+        )
+
+        if response.status_code != 200:
+            print(response.text)
+            return None
+
+        data = response.json()
+
+        content = data.get("content")
+
+        if not isinstance(content, list):
+            return None
+
+        transcript_parts = []
+
+        for item in content:
+
+            text = item.get("text")
+
+            if isinstance(text, str):
+
+                text = text.strip()
+
+                if text:
+                    transcript_parts.append(text)
+
+        transcript = " ".join(
+            transcript_parts
+        ).strip()
+
+        if transcript:
+
+            print(
+                "Supadata Success:",
+                len(transcript),
+            )
+
+            return transcript
+
+        return None
+
+    except Exception as e:
+
+        print(
+            "Supadata Error:",
+            str(e),
+        )
+
+        return None
 
 
 # =========================================================
@@ -345,7 +432,23 @@ def get_transcript(
 
     print("Video ID:", video_id)
 
+    # =====================================================
+    # METHOD 0 : SUPADATA
+    # =====================================================
 
+    supadata_transcript = get_transcript_from_supadata(
+    url
+)
+
+    if supadata_transcript:
+
+      return {
+        "success": True,
+        "transcript": supadata_transcript,
+        "source": "supadata",
+        "error": None,
+        "message": "Transcript fetched from Supadata."
+     }
     # =====================================================
     # METHOD 1: YOUTUBE TRANSCRIPT API
     # =====================================================
