@@ -1,212 +1,272 @@
 # 🎓 LectureLens — AI-Powered Live Video Notes Assistant
 
-LectureLens is an AI-powered learning assistant that helps students learn more effectively by generating intelligent notes from video lectures and meeting recordings.
+LectureLens is an AI-powered learning platform that transforms YouTube lectures and uploaded videos into structured study material. It automatically generates transcripts, AI-powered notes, key concepts, flashcards, quizzes, and provides an AI chat assistant to help students learn more effectively.
 
-Users can paste a YouTube lecture URL or upload a recording, while LectureLens processes the content and turns it into structured, useful notes — helping students focus on learning instead of constantly writing.
-
----
-
-## 🌐 Live Demo
-
-🚀 **Live Website:**  
-https://lecture-lens-kappa.vercel.app
-
-🔗 **Backend API:**  
-https://lecturelens-production-5dec.up.railway.app
-
-📚 **Interactive API Docs:**  
-https://lecturelens-production-5dec.up.railway.app/docs
+🌐 **Live Demo:** https://lecture-lens-final.vercel.app
 
 ---
 
-## ✨ Features
+# ✨ Features
 
-- 🎥 Process YouTube lecture videos
-- 📤 Upload lecture or meeting recordings
-- 🤖 AI-powered note generation
-- 📝 Structured academic notes
-- ⚡ Fast backend API processing
-- 🎯 Clean and student-friendly interface
-- 📱 Responsive frontend design
-- ☁️ Fully deployed frontend and backend
-- 🔗 Frontend–backend API integration
+## 📺 YouTube Lecture Analysis
+- Analyze any public YouTube lecture
+- Fetch video metadata
+- Display embedded video player
+- Automatic transcript generation
+
+## 🤖 AI Learning Workspace
+- AI-generated lecture summaries
+- Live Notes
+- Complete Transcript
+- Key Concepts extraction
+- Study Tips
+- Topic Overview
+
+## 💬 AI Chat
+- Ask questions about the lecture
+- Context-aware responses
+- Personalized explanations
+
+## 📝 Flashcards
+- Automatic flashcard generation
+- Quick revision mode
+- AI-generated question-answer cards
+
+## 🧠 Quiz Generator
+- Multiple Choice Questions
+- Instant answer validation
+- AI-generated assessments
+
+## 📁 Upload Your Own Lectures
+Supports:
+- MP4
+- MP3
+- WAV
+- M4A
+
+Generate notes and transcripts from uploaded lecture recordings.
+
+## 📚 Study Tools
+- Export Notes as PDF
+- Copy Notes
+- Bookmark Lectures
+- Share Notes
+- Lecture History
+- Download History
+
+## 📱 Responsive Design
+- Desktop
+- Tablet
+- Mobile
+- Cross-browser compatible
 
 ---
 
-## 🛠️ Tech Stack
+# 🛠 Tech Stack
 
-### Frontend
+## Frontend
 
 - React
 - TypeScript
 - Vite
-- TSX
-- Modern responsive UI
+- Tailwind CSS
+- React Router
+- Lucide Icons
 
-### Backend
+## Backend
 
-- Python
 - FastAPI
+- Python
 - Uvicorn
+
+## AI
+
 - Groq API
-- YouTube Transcript API
-- yt-dlp
 - Faster Whisper
+- YouTube Transcript API
 
-### Deployment
+## Video Processing
 
-- Vercel — Frontend
-- Railway — Backend
-- GitHub — Version Control and Deployment Integration
+- yt-dlp
+
+## Deployment
+
+Frontend:
+- Vercel
+
+Backend:
+- Railway
 
 ---
 
-## 🏗️ Project Structure
+# 📂 Project Structure
 
-~~~text
-LectureLens/
+```
+LectureLens-Final
 │
-├── AI-Live-Video-Notes-Assistant/
-│   ├── backend/
-│   │   ├── app/
-│   │   │   ├── api/
-│   │   │   ├── services/
-│   │   │   ├── utils/
-│   │   │   └── main.py
-│   │   ├── requirements.txt
-│   │   └── railway.toml
-│   │
-│   ├── assets/
-│   ├── docs/
-│   └── frontend/
+├── LectureLens Frontend
+│   ├── src
+│   ├── public
+│   ├── components
+│   ├── pages
+│   └── services
 │
-├── LectureLens Frontend/
-│   ├── src/
-│   ├── package.json
-│   └── vite.config.ts
+├── AI-Live-Video-Notes-Assistant
+│   └── backend
+│       ├── api
+│       ├── services
+│       ├── uploads
+│       ├── outputs
+│       └── main.py
 │
 └── README.md
-~~~
+```
 
 ---
 
-## 🚀 Running the Project Locally
+# 🚀 Installation
 
-### 1. Clone the repository
+## Clone Repository
 
-~~~bash
-git clone <your-repository-url>
-cd LectureLens
-~~~
-
-### 2. Run the Backend
-
-~~~bash
-cd AI-Live-Video-Notes-Assistant/backend
-python -m venv venv
-~~~
-
-Activate the virtual environment on Windows:
-
-~~~bash
-venv\Scripts\activate
-~~~
-
-Install dependencies:
-
-~~~bash
-pip install -r requirements.txt
-~~~
-
-Create a `.env` file:
-
-~~~env
-GROQ_API_KEY=your_groq_api_key
-~~~
-
-Start the backend:
-
-~~~bash
-uvicorn app.main:app --reload
-~~~
-
-The local backend will be available at:
-
-~~~text
-http://127.0.0.1:8000
-~~~
+```bash
+git clone https://github.com/Paree07/LectureLens-Final.git
+```
 
 ---
 
-### 3. Run the Frontend
+## Frontend
 
-Open another terminal:
-
-~~~bash
+```bash
 cd "LectureLens Frontend"
+
 npm install
+
 npm run dev
-~~~
+```
 
-The local frontend will run on the URL shown by Vite.
+Frontend runs on
 
----
-
-## 🔐 Environment Variables
-
-The backend requires:
-
-~~~env
-GROQ_API_KEY=your_groq_api_key
-~~~
-
-> Never commit your real API key or `.env` file to GitHub.
+```
+http://localhost:5173
+```
 
 ---
 
-## ☁️ Deployment Architecture
+## Backend
 
-~~~text
-User
-  │
-  ▼
-LectureLens Frontend
-  │
-  │ HTTPS API Requests
-  ▼
-Railway FastAPI Backend
-  │
-  ├── Groq AI
-  ├── YouTube Transcript API
-  ├── yt-dlp
-  └── Faster Whisper
-~~~
+```bash
+cd AI-Live-Video-Notes-Assistant/backend
 
----
+python -m venv venv
 
-## 🔮 Future Improvements
+venv\Scripts\activate
 
-- User authentication
-- Saved lecture history
-- Export notes as PDF
-- AI-generated quizzes
-- Flashcard generation
-- Multi-language transcription
-- Search across saved notes
-- Personalized learning dashboard
+pip install -r requirements.txt
+
+uvicorn app.main:app --reload
+```
+
+Backend runs on
+
+```
+http://127.0.0.1:8000
+```
 
 ---
 
-## 👩‍💻 Author
+# 🔑 Environment Variables
 
-**Paree07**
+## Frontend (.env)
 
-GitHub: https://github.com/Paree07
+```env
+VITE_API_BASE_URL=https://YOUR-RAILWAY-URL.up.railway.app
+```
+
+---
+
+## Backend (.env)
+
+```env
+GROQ_API_KEY=YOUR_GROQ_API_KEY
+
+SUPADATA_API_KEY=YOUR_SUPADATA_API_KEY
+```
 
 ---
 
-## ⭐ Support
+# 🌍 Live Deployment
 
-If you find LectureLens useful, consider giving the repository a ⭐ on GitHub.
+Frontend
+
+https://lecture-lens-final.vercel.app
+
+Backend
+
+https://lecturelens-final-production.up.railway.app
 
 ---
+
+# 📌 Major Functionalities
+
+✔ Analyze YouTube Lectures
+
+✔ Generate AI Notes
+
+✔ Generate Transcript
+
+✔ Extract Key Concepts
+
+✔ AI Chat
+
+✔ Flashcards
+
+✔ Quiz Generation
+
+✔ Upload Lecture Files
+
+✔ PDF Export
+
+✔ Bookmark Lectures
+
+✔ Download History
+
+✔ Responsive Design
+
+✔ Railway Deployment
+
+✔ Vercel Deployment
+
+---
+
+# 🎯 Future Improvements
+
+- User Authentication
+- Cloud Storage
+- Multi-language Support
+- Lecture Recommendations
+- Voice Chat
+- Real-time Collaboration
+- Offline Mode
+- Note Synchronization
+
+---
+
+# 👨‍💻 Author
+
+**Pari**
+
+GitHub
+
+https://github.com/Paree07
+
+---
+
+# ⭐ If you like this project
+
+Give the repository a ⭐ on GitHub!
+
+---
+
+# 📄 License
+
+This project is developed for educational and academic purposes.
